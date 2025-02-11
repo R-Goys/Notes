@@ -65,10 +65,34 @@ rt，给定一个数组和目标值**target**，要求数组中的所有数字�
 
 联立求解，就是得到了符号相同的数字的和，这里还可以进一步优化，就是给target加上绝对值。
 
-随后就是和上面一样的背包问题。
+随后就是和上面一样的背包问题，代码如下：
+
+```go
+func findTargetSumWays(nums []int, target int) int {
+    sum := 0
+    for i := 0; i < len(nums); i++ {
+        sum += nums[i]
+    }
+    sum -= target
+    if sum < 0 || sum % 2 == 1 {
+        return 0
+    }
+    V := sum / 2
+    f := make([]int, V + 1)
+    f[0] = 1
+
+
+    for i := 0; i < len(nums); i ++ {
+        for j := V; j >= nums[i]; j -- {
+            f[j] += f[j - nums[i]]
+        }
+    }
+    return f[V]
+}
+```
 
 ---
 
 ## 结语
 
-无
+菜就多练~
