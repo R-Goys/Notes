@@ -38,3 +38,33 @@ func longestCommonSubsequence(text1 string, text2 string) int {
 
 ---
 
+然而，仔细一想，我们有没有可以优化的空间呢？
+
+## 滚动数组优化
+
+我最开始知道这种优化方法的时候也是感觉太天才了，滚动数组这个名字也十分形象。
+
+由于我们在计算状态时，只需要知道前面两个状态就行了，于是我们只需要保存两个状态，只需要为二维数组开辟常数级的空间，然后实现O(m)的空间复杂度，所以我们就可以利用这种性质来实现滚动数组优化，代码如下：
+
+```go
+func longestCommonSubsequence(text1 string, text2 string) int {
+    n := len(text1)
+    m := len(text2)
+    f := make([][]int, 2)
+    for i := 0; i < 2; i ++ {
+        f[i] = make([]int, m + 1)
+    }
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            f[i % 2][j] = max(f[(i - 1) % 2][j], f[i % 2][j - 1])
+            if text1[i - 1] == text2[j - 1] {
+                f[i % 2][j] = max(f[i % 2][j], f[(i - 1) % 2][j - 1] + 1)
+            }
+        }
+    }
+    return f[n % 2][m]
+}
+```
+
+----
+
