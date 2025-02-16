@@ -67,7 +67,42 @@ public:
 };
 ```
 
-![点击并拖拽以移动](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==)
+----
+
+### 第二次写：
+
+基本没啥问题....
+
+```go
+func mergeTwoLists(list1 *ListNode, list2 *ListNode) *ListNode {
+    tmp1 := list1
+    tmp2 := list2
+    dummy := &ListNode{}
+    Tmp := dummy
+
+    for tmp1 != nil && tmp2 != nil {
+        if tmp1.Val <= tmp2.Val {
+            Tmp.Next = tmp1
+            Tmp = Tmp.Next
+            tmp1 = tmp1.Next
+        } else {
+            Tmp.Next = tmp2
+            Tmp = Tmp.Next
+            tmp2 = tmp2.Next
+        }
+    }
+    if tmp1 == nil {
+        Tmp.Next = tmp2
+    } else {
+        Tmp.Next = tmp1
+    }
+    return dummy.Next
+}
+```
+
+
+
+
 
 # 结语
 
