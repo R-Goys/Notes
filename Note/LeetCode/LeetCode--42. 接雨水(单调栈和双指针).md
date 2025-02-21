@@ -92,7 +92,86 @@ public:
 };
 ```
 
-![点击并拖拽以移动](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==)
+----
+
+# 第二次做
+
+数组存储前缀最大值和后缀最大值，空间复杂度和时间复杂度都是O(N)，不如之前用的双指针欸，回炉重造了得,不过双指针的思路确实比较巧妙，第二次做虽然值知道是双指针，但也不知道咋做了，哈哈
+
+## 数组存储前后缀
+
+```go
+func trap(height []int) int {
+    n := len(height)
+    PreMax  := make([]int, n + 1)
+    NeMax := make([]int, n + 2)
+    for i := 0; i < n; i ++ {
+        PreMax[i + 1] = max(PreMax[i], height[i])
+    }
+    for i := n - 1; i >= 0; i -- {
+        NeMax[i + 1] = max(NeMax[i + 2], height[i])
+    }
+    ans := 0
+    for i := 0; i < n; i ++ {
+        ans += min(PreMax[i + 1], NeMax[i + 1]) - height[i]
+    }
+    return ans
+}
+```
+
+## 双指针
+
+想了一下也写出来了
+
+```go
+func trap(height []int) int {
+    ans, PreMax, ReMax, i, j := 0, 0, 0, 0, len(height) - 1
+    
+    for i <= j {
+        PreMax = max(PreMax, height[i])
+        ReMax = max(ReMax, height[j])
+        if PreMax > ReMax {
+            ans += ReMax - height[j]
+            j --
+        } else {
+            ans += PreMax - height[i]
+            i ++
+        }
+    }
+    return ans
+}
+```
+
+## 栈
+
+栈还是没想出来咋做，唉唉
+
+```go
+func trap(height []int) int {
+    n := len(height)
+    ans := 0
+    var stk []int
+    for i := 0; i < n; i ++ {
+        for len(stk) != 0 && height[stk[len(stk) - 1]] < height[i] {
+            top := stk[len(stk) - 1]
+            stk = stk[:len(stk) - 1]
+            if len(stk) == 0 {
+                break
+            }
+            left := stk[len(stk) - 1]
+            wid := i - left - 1
+            hei := min(height[i], height[left]) - height[top]
+            ans += wid * hei
+        }
+        stk = append(stk, i)
+    }
+    return ans
+}
+```
+
+
+
+
 
 # 结语
 
