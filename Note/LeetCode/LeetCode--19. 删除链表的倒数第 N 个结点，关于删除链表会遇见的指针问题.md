@@ -49,6 +49,47 @@ public:
 
 因此，通过修改虚拟节点的 `->next` 指针，我们实际上可以删除链表中的第一个节点，并确保链表的结构得到正确更新。因此，我们应当返回虚拟节点的 `->next` 指针，而不是直接返回 `head`。
 
+### 二刷
+
+秒了
+
+```go
+func removeNthFromEnd(head *ListNode, n int) *ListNode {
+    dummy := &ListNode{Next:head}
+    Len := 0
+    for tmp := dummy.Next; tmp != nil; tmp = tmp.Next {
+        Len ++
+    }
+    tmp := dummy
+    for i := 0; i < Len - n; i ++ {
+        tmp = tmp.Next
+    }
+    tmp.Next = tmp.Next.Next
+    return dummy.Next
+}
+```
+
+第二种思路
+
+pre和ne隔了n - 1个节点，所以直接利用这种性质，一次遍历就能完成
+
+```go
+func removeNthFromEnd(head *ListNode, n int) *ListNode {
+    dummy := &ListNode{Next:head}
+    ne, pre := head, dummy
+    for i := 0; i < n; i++ {
+        ne = ne.Next
+    }
+    for ; ne != nil; ne = ne.Next {
+        pre = pre.Next
+    }
+    pre.Next = pre.Next.Next
+    return dummy.Next
+}
+```
+
+
+
 # 结语
 
 以上的想法是我自己思考的，如果有不对的地方麻烦请指出来~
