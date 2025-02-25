@@ -16,6 +16,8 @@
 
 ---
 
+### 第一次做
+
 贵物题目，虽然想出来了思路是怎么做的，但是代码写不出来💀,无所谓了,开背
 
 ```go
@@ -44,4 +46,40 @@ func nextPermutation(nums []int)  {
 	}
 }
 ```
+
+### 二刷
+
+有思路，写出来了，但是40分钟...
+
+首先从后往前遍历，找到第一个前一个元素`i`小于后一个元素`j`的数字，若能够找到，则证明找到的下标之后的排列均为升序，只需要在这里面找到第一个大于`i`的元素，然后交换位置，最后将`nums[j:]`这部分反转一下就是我们最后的答案。
+
+如果没有找到这样的两个元素，说明当前数组是完全的降序排列，相当于是最后一个排列，直接反转数组即可。
+
+```go
+func nextPermutation(nums []int)  {
+    if len(nums) <= 1 {
+        return
+    }
+
+    i, j := len(nums) - 2, len(nums) - 1
+    for i >= 0 && nums[i] >= nums [j] {
+        i --
+        j --
+    }
+    firstBig := len(nums) - 1
+    if i >= 0 {
+        for nums[i] >= nums[firstBig] {
+            firstBig --
+        }
+        nums[firstBig], nums[i] = nums[i], nums[firstBig]
+    }
+    for l, r := j, len(nums) - 1; l < r; {
+        nums[l],nums[r] = nums[r], nums[l]
+        l ++
+        r --
+    }
+}
+```
+
+
 
