@@ -73,3 +73,29 @@ func longestValidParentheses(s string) int {
 
 ----
 
+### 二刷，dp
+
+半个月就忘了，败下阵来...
+
+```go
+func longestValidParentheses(s string) int {
+    n := len(s)
+    f := make([]int, n + 1)
+    ans := 0
+    for i := 1; i < n; i ++ {
+        if s[i] == ')' {
+            if s[i - 1] == '(' {
+                f[i + 1] = f[i - 1] + 2
+            } else {
+                j := i - f[i] - 1
+                if j >= 0 && s[j] == '(' {
+                    f[i + 1] = f[i] + f[j] + 2
+                }
+            }
+            ans = max(f[i + 1], ans)
+        }
+    }
+    return ans
+}
+```
+
