@@ -54,6 +54,53 @@ func maxProduct(nums []int) int {
 }
 ```
 
+
+
+### 二刷dp
+
+没写出来，明明才写过没好久，哎
+
+```go
+func maxProduct(nums []int) int {
+
+	n := len(nums)
+	MaxF := make([]int, n)
+	MinF := make([]int, n)
+    ans := nums[0]
+	MaxF[0], MinF[0] = nums[0], nums[0]
+
+	for i := 1; i < n; i++ {
+		MaxF[i] = max(MaxF[i-1]*nums[i], max(MinF[i-1]*nums[i], nums[i]))
+		MinF[i] = min(MinF[i-1]*nums[i], min(MaxF[i-1]*nums[i], nums[i]))
+        ans = max(ans, MaxF[i])
+	}
+    return ans
+}
+```
+
+**优化细节：**
+
+为什么需要mx，mn变量？
+
+因为再有多个max和min表达式，在计算max，min的时候，会有先后顺序，造成不一致性
+
+```go
+func maxProduct(nums []int) int {
+	n := len(nums)
+	ans, MaxF, MinF := nums[0], nums[0], nums[0]
+
+	for i := 1; i < n; i++ {
+        mn, mx := MinF, MaxF
+		MaxF = max(mx*nums[i], max(mn*nums[i], nums[i]))
+		MinF = min(mn*nums[i], min(mx*nums[i], nums[i]))
+        ans = max(ans, MaxF)
+	}
+    return ans
+}
+```
+
+
+
 ----
 
 ### 结语
