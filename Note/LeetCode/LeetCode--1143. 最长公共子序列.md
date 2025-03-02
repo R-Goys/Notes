@@ -68,3 +68,49 @@ func longestCommonSubsequence(text1 string, text2 string) int {
 
 ----
 
+## 二刷
+
+```go
+func longestCommonSubsequence(text1 string, text2 string) int {
+    n := len(text1)
+    m := len(text2)
+    f := make([][]int, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]int, m + 1)
+    }
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            if text1[i - 1] == text2[j - 1] {
+                f[i][j] = max(f[i - 1][j - 1] + 1, max(f[i - 1][j], f[i][j - 1]))
+            } else {
+                f[i][j] = max(f[i - 1][j], f[i][j - 1])
+            }
+        }
+    }
+    return f[n][m]
+}
+```
+
+发现原来还可以继续优化，之前写过，一下子就知道了
+
+```go
+func longestCommonSubsequence(text1 string, text2 string) int {
+    n := len(text1)
+    m := len(text2)
+    f := make([][]int, 2)
+    for i := 0; i < 2; i ++ {
+        f[i] = make([]int, m + 1)
+    }
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            if text1[i - 1] == text2[j - 1] {
+                f[i%2][j] = max(f[(i - 1)%2][j - 1] + 1, max(f[(i - 1)%2][j], f[i%2][j - 1]))
+            } else {
+                f[i%2][j] = max(f[(i - 1)%2][j], f[i%2][j - 1])
+            }
+        }
+    }
+    return f[n%2][m]
+}
+```
+
