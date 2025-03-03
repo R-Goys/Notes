@@ -53,10 +53,70 @@ public:
 };
 ```
 
-![点击并拖拽以移动](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==)
-
 # 结语
 
 多复习才是正道，在往前学习的同时，也要记得回头看看，指不定哪天就忘了。
 
-# **-------END------**
+----
+
+## 二刷
+
+又忘了，唉唉，说一下思路加深记忆：
+
+窗口由hh，tt两个变量维护，每次遍历将元素加入窗口，并且在窗口元素满的时候，应该去除窗口最左边的元素，如果要加入的值大于等于窗口最左边的元素，去除即可，这道题中的抽象比较多，所以不太好做，但是每次做加深理解就可以了，我认为有两个不好理解的地方：
+
+1. window切片存储的真的就是滑动窗口中所有元素的下标吗？
+2. hh和tt维护的到底是什么？
+
+我觉得记住两点，hh始终是指向当前窗口的最大值，当前我们抽象出来的窗口始终是单调递减的。
+
+有两种写法，不得不说切片真的好用
+
+Cpp做法迁移过来的：
+
+```go
+func maxSlidingWindow(nums []int, k int) []int {
+    n := len(nums)
+    var ans []int
+    window := make([]int, n)
+    hh, tt := 0, -1
+    for i := 0; i < n; i ++ {
+        if hh <= tt && i - window[hh] + 1 > k {
+            hh ++
+        }
+        for hh <= tt && nums[window[tt]] <= nums[i] {
+            tt --
+        }
+        tt ++
+        window[tt] = i
+        if i - k + 1 >= 0 {
+            ans = append(ans, nums[window[hh]])
+        }
+    }
+    return ans
+}
+```
+
+切片作为窗口：
+
+```go
+func maxSlidingWindow(nums []int, k int) []int {
+    n := len(nums)
+    var ans []int
+    var window []int
+    for i := 0; i < n; i ++ {
+        if len(window) > 0 && i - window[0] >= k {
+            window = window[1:]
+        }
+        for len(window) > 0 && nums[window[len(window) - 1]] <= nums[i] {
+            window = window[:len(window) - 1]
+        }
+        window = append(window, i)
+        if i - k + 1 >= 0 {
+            ans = append(ans, nums[window[0]])
+        }
+    }
+    return ans
+}
+```
+
