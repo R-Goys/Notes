@@ -44,4 +44,77 @@ context不是很形象，就和他的名字一样,**上下文**，它可以根�
 
 ## 3. 计时器
 
-表面上是切片，内部使用四叉堆维护timer(计时器)，堆顶元素是距离截止时间最近的计时器，四叉堆，顾名思义，就是每个节点只能有四个子节点
+表面上是切片，内部使用四叉堆维护timer(计时器)，堆顶元素是距离截止时间最近的计时器，四叉堆，顾名思义，就是每个节点只能有四个子节点，Go语言通过网络轮询器监听最近到期的timer是否到期，如果到期，则会执行回调。网络轮询器实际上还负责I/O事件和网络连接，如果这三者同时发生，timer执行的优先度是最低的。
+
+**最佳实践**：
+
+- 使用 `time.Timer` 或 `time.Ticker` 进行定时任务
+
+   ```go
+   timer := time.NewTimer(2 * time.Second)
+   <-timer.C // 2秒后触发
+   ```
+
+2. 避免使用 `time.Sleep` 影响调度
+
+   ```go
+   select {
+   case <-time.After(2 * time.Second):
+       fmt.Println("2秒后执行")
+   }
+   ```
+
+   这样不会阻塞当前 Goroutine，适用于需要超时控制的场景。
+
+3. 使用 `time.AfterFunc` 注册回调
+
+   ```go
+   time.AfterFunc(1*time.Second, func() {
+       fmt.Println("1秒后触发")
+   })
+   ```
+
+   适用于触发一次的定时任务。
+
+4. 使用 `Ticker` 处理周期性任务
+
+   ```go
+   ticker := time.NewTicker(1 * time.Second)
+   defer ticker.Stop()
+   for range ticker.C {
+       fmt.Println("每秒执行一次")
+   }
+   ```
+
+   `Ticker` 适用于高效的循环任务，避免每次创建新的 `Timer`。
+
+5. 及时停止 `Timer` 和 `Ticker` 以释放资源
+
+   ```go
+   timer := time.NewTimer(5 * time.Second)
+   timer.Stop() // 停止计时器，防止 Goroutine 泄漏
+   ```
+
+6. 注意 `select` 防止 Goroutine 泄漏(timer.After内部会创建一个goroutine)
+
+   ```go
+   select {//错误做法
+   case <-time.After(3 * time.Second):
+       fmt.Println("超时")
+   case result := <-someChannel:
+       fmt.Println("收到结果", result)
+   }
+   ```
+
+7. 避免 `time.After` 造成的 Goroutine 泄漏(timer.After内部会创建一个goroutine)
+
+   ```go
+   timer := time.NewTimer(5 * time.Second)
+   defer timer.Stop()
+   select {//true做法
+   case <-timer.C:
+       fmt.Println("超时")
+   case <-done:
+       fmt.Println("任务完成")
+   }
+   ```
