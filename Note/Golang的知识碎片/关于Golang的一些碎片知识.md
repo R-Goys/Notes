@@ -26,6 +26,8 @@ G代表goroutine，M代表machine也叫做线程，P代表processor，处理器(
 3. **协作式**：可以理解为“我休息一会，你们先上”，就是让出处理器，将自己状态变成_Grunnable，放到全局队列，然后重新开始调度；另一种是函数调用时，会在前方插入一个触发抢占的函数，检查是否有发出抢占请求的goroutine。
 4. **基于信号的抢占式调度**：通过 `SIGURG` 信号和修改寄存器，强制让出 CPU，解决紧密循环 Goroutine 无法被调度的问题，提高调度公平性和 GC 效率。
 
+
+
 ----
 
 ## 2. Context上下文
@@ -39,6 +41,8 @@ context不是很形象，就和他的名字一样,**上下文**，它可以根�
 -  使用 `context.WithDeadline` 确保任务在固定时间前完成
 -  使用 `context.WithValue` 传递请求作用域数据(这个不常用)
 -  `context` 只应该作为参数传递，而不是结构体字段，更不是全局变量
+
+
 
 ----
 
@@ -119,6 +123,8 @@ context不是很形象，就和他的名字一样,**上下文**，它可以根�
    }
    ```
 
+
+
 ----
 
 ## 4. 网络轮询器
@@ -136,6 +142,8 @@ context不是很形象，就和他的名字一样,**上下文**，它可以根�
 **截止日期**：为每个fd设置截止日期，每个fd都有一个对应的timer，超时则执行回调函数取消该事件，并唤醒goroutine，使其做出相应的处理(重试或取消)
 
 其实这部分光看《Go语言设计与实现》确实能够理解不少，毕竟是带着你去读源码，但是看了一遍这部分，再自己去读一下源码，也会别有一番收获。
+
+
 
 ----
 
@@ -195,7 +203,7 @@ ch <- 5
 
 当然，如果当前channel为空，而我们要从中那个接受消息，当前goroutine也会陷入休眠，直到有其他goroutine向channel中发送了信息。
 
-**Q**：如果有多个goroutine发送或接受信息，是怎么排队的？**A**：底层的Channel数据结构中还有一个成员`recvq`和`sendq`其中存储了goroutine的队列，以此来确保先后顺序。
+**Q**：如果有多个goroutine发送或接受信息，是怎么排队的？**A**：底层的Channel数据结构中还有一个成员`recvq`和`sendq`其中存储了goroutine的队列，以此来确保先后顺序，其中还有一个`sudog`的结构体对象，用来真正存储goroutine的链表和相关信息。
 
 当发生发生这种情况时，如果关闭这个channel，就会解决死锁的问题，但是如果时向已经满的channel发送数据造成的死锁，那么会引发panic。
 
@@ -225,4 +233,57 @@ default:
 | **避免 `nil channel`**                               | `ch := make(chan int)`       | 确保 `channel` 被正确初始化 |
 | **使用 `context` 控制退出而不是**`channel`           | `context.WithCancel`         | 任务取消、超时控制          |
 | **使用 `fan-in` 和 `fan-out`**(不知道可以自己搜一下) | `merge()` / `worker()`       | 并发处理任务                |
+
+---
+
+## 6. for和range
+
+1. 如果使用for-range遍历切片，并不断在后面追加元素，并不会造成无限循环，只会遍历到切片最初的长度，而如果使用`for i := 0; i < len(slice); i ++`的时候，则会陷入无限循环。
+2. 如果使用`for i, v := range slice`，此时的i和v均为临时变量，如果将地址v的地址加入一个新的数组，则会出问题。
+3. for range遍历哈希表的时候，顺序随机。
+
+
+
+----
+
+## 7. select
+
+select，与switch类似，但是select必须与channel搭配使用，他会在满足条件的case中随机选择一个进行执行，和select搭配，channel就可以实现非阻塞的收发数据。
+
+值得一提的是，如果不存在满足条件的case，就会阻塞下去，这时候可以加一个default字段，表示所有的case都不满足条件的case，此时select中的channel会**非阻塞的执行**
+
+### 数据结构
+
+select不存在相应的结构体，但是case存在对应的数据结构：
+
+```go
+type scase struct {
+	c    *hchan         // chan
+	elem unsafe.Pointer // data element
+}
+```
+
+### 实现
+
+1. 将所有的 `case` 转换成包含 Channel 以及类型等信息的 [`runtime.scase`](https://draveness.me/golang/tree/runtime.scase) 结构体；
+2. 调用运行时函数 [`runtime.selectgo`](https://draveness.me/golang/tree/runtime.selectgo) 从多个准备就绪的 Channel 中选择一个可执行的 [`runtime.scase`](https://draveness.me/golang/tree/runtime.scase) 结构体；
+3. 通过 `for` 循环生成一组 `if` 语句，在语句中判断自己是不是被选中的 `case`；
+
+`runtime.selectgo`是如何实现的？让我们来分析分析：
+
+首先最开始，我们要先确定这些case执行的顺序(随机确定)，然后决定每个通道加锁的顺序，随后再加锁完成之后就会进入selectgo函数的主循环：
+
+1. 第一阶段是寻找已经就绪的case，如果case不包含channel，就会跳过，也就是不会接收到数据，如果当前case有channel的时候，就会尝试去拿数据，但是如果没有数据可以读，并且管道已经关闭了。如果需要向channel中发送数据，会先检查通道是否关闭，如果关闭，则会触发panic，否则，正常判断。如果遇到了default，表示之前的cas而都没有执行，所以会直接执行default事件。
+2. 如果没有default，并且没有找到对应的已经就绪的case，那么就会进入到第二阶段，将当前的goroutine加入到各个管道的等待队列中进行等待，进入休眠状态。
+3. 一旦其中的一些channel就绪了，就会唤醒goroutine，进入第三阶段。我们需要先从goroutine中拿取节点`sudog`来找到对应的就绪的channel，如果找到一个channel，剩下的case都不会被执行，但是由于其他的channel可能也是就绪状态，我们还需要将这些废弃的节点`sudog`从这些没有执行的channel里面删除(如果不知道`sudog`是什么，可以回头看看channel的内容)，但是此时也依旧是通过遍历去查找所有的case，比对，然后对选择的case的索引进行保存，其余的则删除。这个时候，我们就完成了我们的选择了。
+
+
+
+----
+
+
+
+
+
+
 
