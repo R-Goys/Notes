@@ -10,7 +10,7 @@
 
 ----
 
-dfs
+### dfs
 
 还有另一种方法是中序遍历，可以让二叉搜索树变成单调递增的数组。
 
@@ -27,6 +27,31 @@ func dfs(node *TreeNode, Max int, Min int) bool {
         return false
     }
     return dfs(node.Left, node.Val, Min) && dfs(node.Right, Max, node.Val)
+}
+```
+
+### 中序遍历
+
+需要一个栈空间和一个遍历存储前一个值，因为中序遍历顺序会令二叉搜索树单调递增，所以只需要保存之前遍历的一个值即可
+
+```go
+func isValidBST(root *TreeNode) bool {
+    var stack []*TreeNode
+    PreVal := math.MinInt64
+    for len(stack) != 0 || root != nil {
+        for root != nil {
+            stack = append(stack, root)
+            root = root.Left
+        }
+        root = stack[len(stack) - 1]
+        stack = stack[:len(stack) - 1]
+        if root.Val <= PreVal {
+            return false
+        }
+        PreVal = root.Val
+        root = root.Right
+    }
+    return true
 }
 ```
 
