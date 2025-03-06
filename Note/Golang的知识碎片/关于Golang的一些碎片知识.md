@@ -381,3 +381,97 @@ Go 语言的内存分配涉及多个缓存层级，以减少直接向操作系�
 
 ----
 
+## 10. 垃圾收集器
+
+### 三色标记法
+
+#### 组成
+
+**黑色**：活跃的对象，包括不存在引用任何外部指针或根节点可达的对象。
+
+**灰色**：活跃的对象，被其他对象引用，同时也可能引用了其他白色的元素，所以需要对他进行遍历检查。
+
+**白色**：可能为垃圾，所以需要遍历检查。
+
+#### 工作原理
+
+1. 从灰色对象中选一个变成黑色。
+2. 将黑色对象指向的所有对象标记成灰色。
+3. 循环上述过程
+
+最终，所有引用和被引用的对象都变成了黑色，剩下的白色没有被任何对象引用，也没有引用其他对象，所以白色可以视为垃圾，应当被垃圾收集器(GC)回收。
+
+到目前为止，一切正常，但是如果我们考虑到并发性，仅仅是这样的三色标记法是无法保证垃圾被正确回收的，比如我们来看一个例子，此时有A,B,C三个对象，A引用了B，C目前是垃圾：
+
+> 1. 三色标记法执行，将A标记为黑色，B为灰色，C为白色。
+> 2. 程序运行，A引用C，并取消对B的引用，B为垃圾。
+> 3. 三色标记法继续执行，ABC最终全都为黑色，无法正确回收垃圾。
+
+**怎么解决？**
+
+虽然可以用STW(Stop The World)，但是过于影响性能，导致程序卡顿，所以这里我们就可以引入我们的**屏障技术**
+
+#### 屏障技术
+
+为了在并发中的正确标记垃圾，有两种三色不变性需要满足：
+
+- 强三色不变性 — 黑色对象不会指向白色对象，只会指向灰色对象或者黑色对象；
+- 弱三色不变性 — 黑色对象指向的白色对象必须包含一条从灰色对象经由多个白色对象的可达路径
+
+**Dijkstra 插入写屏障**：在用户执行**写**操作的时候，即修改了指针的指向，此时会触发写屏障将被指向的对象标记为黑色，保证正确被删除，虽然简单且实现了强三色不变性，但是也有一定局限性，比如说已经被标记为灰色的对象，在取消引用之后不会被标记为垃圾。
+
+**Yuasa 删除写屏障**：在用户执行**删**操作的时候，即删除了A对B的引用，如果此时B为白色，那么就会将其标记为灰色，因为此时这个B还有一定可能被使用，不能直接删除，所以通过这个屏障，保证了弱三色不变性，防止被某一对象被错误回收，但是局限性依旧和上面的插入写屏障一样，可能会导致垃圾无法正确被回收。
+
+#### 垃圾收集的方法
+
+1. **增量垃圾收集**：配合三色标记法，不使用STW的方案，而是将STW分成n个时间片，与应用程序交替执行，同时也要开启写屏障，相比STW，性能肯定是更好了。
+2. **并发垃圾收集**：开启读写屏障，利用多核优势与程序并行，能够最大程度的减少对应用程序的影响，但是并发垃圾收集并不总是并发的，而且在部分阶段还是会暂停应用程序的。同时，并发执行垃圾收集引起的开销也是不能忽略的一点。
+
+**说了这么多，Go的垃圾收集器是怎么实现的？**
+
+### Go中的垃圾收集器(GC)
+
+#### **混合写屏障**
+
+结合了删除写和插入写屏障，同时，如果当前栈还没有被扫描，新分配的对象标记为黑色，删操作，标记被删对象为灰色，由此一来，我们的在栈上的新对象在分配时都会自动被标记为黑色，所以不需要`Stop The World`去扫描整个栈，同时，也只有在栈未扫描是才会做标记，避免了无用的操作。
+
+#### **垃圾收集过程**
+
+1. 暂停程序，确保没有运行中的goroutine干扰，如果当前GC是强制触发，还需要清理还未被清理的内存管理单元，然后将状态切换为`_GCmark`，进入标记状态，随后开启用户协助程序和写屏障，并将根对象入队。
+2. 恢复程序，并发地开始标记。
+3. 暂停程序，确保不会再有对象改变，状态切换至 `_GCmarktermination` 并关闭辅助标记的用户程序，并清理处理器上的线程缓存。
+4. 将状态切换至 `_GCoff` 开始清理阶段，关闭写屏障。
+5. 恢复程序，新创建的对象标记为白色(不会影响当前GC)，后台并发回收垃圾，当goroutine申请新的内存管理单元就会触发清理。
+
+#### **垃圾收集的触发方式**
+
+**前情提要**：所有出现 [`runtime.gcTrigger`](https://draveness.me/golang/tree/runtime.gcTrigger) 结构体的位置都是触发垃圾收集
+
+- 程序启动时，会启动一个goroutine：`go forcegchelper()`，
+
+  这个goroutine负责强制触发垃圾回收，简单来说，就是调用 [`runtime.gcStart`](https://draveness.me/golang/tree/runtime.gcStart) 尝试启动新一轮的垃圾收集，但是并不只是单纯的for循环，这个goroutine在循环中会调用 [`runtime.goparkunlock`](https://draveness.me/golang/tree/runtime.goparkunlock) 主动陷入休眠，大多数时间，这个goroutine都是睡眠的状态，如何将它唤醒呢？
+
+  之前提到的系统监控， [`runtime.sysmon`](https://draveness.me/golang/tree/runtime.sysmon) 会构会构建 [`runtime.gcTrigger`](https://draveness.me/golang/tree/runtime.gcTrigger) 并调用 [`runtime.gcTrigger.test`](https://draveness.me/golang/tree/runtime.gcTrigger.test) 方法判断是否需要触发垃圾回收，如果需要触发，系统监控会将 [`runtime.forcegc`](https://draveness.me/golang/tree/runtime.forcegc) 状态中持有的 Goroutine 加入全局队列等待调度器的调度。
+
+- 手动触发，用户程序会通过 [`runtime.GC`](https://draveness.me/golang/tree/runtime.GC) 函数在程序运行期间主动通知运行时执行，该方法在调用时会阻塞调用方直到当前垃圾收集循环完成，在垃圾收集期间也可能会通过 STW 暂停整个程序。
+
+- 申请内存时，之前**内存分配器**的章节提到了微对象，小对象，大对象，这三类对象创建时都可能触发垃圾回收
+
+#### **垃圾收集的运行过程**
+
+之前提到了垃圾收集的大致运行过程和触发方式，接下来细说一下：
+
+1. 在启动垃圾收集的时候，会调用 [`runtime.gcStart`](https://draveness.me/golang/tree/runtime.gcStart)方法，这很复杂，显然不能一句话解决，首先会调用 [`runtime.gcTrigger.test`](https://draveness.me/golang/tree/runtime.gcTrigger.test) 检查是否满足了垃圾收集的条件，与此同时，还会调用 [`runtime.sweepone`](https://draveness.me/golang/tree/runtime.sweepone) 清理已经被标记的内存单元，**试图**清理已经被标记的内存单元，并不一定会清理完，当然，这只是开始。
+2. 当验证完成了，会调用 [`runtime.stopTheWorldWithSema`](https://draveness.me/golang/tree/runtime.stopTheWorldWithSema) 来暂停程序(这是真的StopTheWorld)，并调用 [`runtime.finishsweep_m`](https://draveness.me/golang/tree/runtime.finishsweep_m) 保证清理完成之前的被标记的内存单元的工作，**为什么会有之前的垃圾没有清理？**这是因为我们之前GC完成之后，仅仅是将垃圾标记了出来，并没有真正的去清理它，而真正的去清理它需要在一定条件下触发，并且是并发运行的，这种情况下，我们第二次GC的时候，垃圾很可能是没有清理完的，所以我们需要去将上一次遗留的垃圾清理掉。
+3. 在完成了全部的准备工作，接下来就是执行了，此时我们会将全局的垃圾收集状态修改到 `_GCmark` ，然后进行一系列初始化我们的标记环境(这里初始化了什么环境可以回到原书去看看)，最后会重启我们的程序，在后台并发地去标记我们的事件了。
+4. **后台标记干了些什么？**在上一步完成之后，我们的程序会调用 [`runtime.gcBgMarkStartWorkers`](https://draveness.me/golang/tree/runtime.gcBgMarkStartWorkers) 启动与M数量对等的标记任务goroutine，这些goroutine不会无意义的循环，而是会陷入休眠等待调度器的唤醒，执行标记任务的goroutine有三种模式，**专用模式**(独占处理器)，**分时模式**(cpu使用率低，启动该类型goroutine使其达到利用率)，**空闲模式**(当前处理器没有可以运行的goroutine，会运行垃圾收集的任务直到被抢占)
+5. 当然，每一种模式都会去调用 [`runtime.gcDrain`](https://draveness.me/golang/tree/runtime.gcDrain) 扫描并标记所有可达对象，一旦所有的工作都陷入等待，就可以认为标记工作已经完成，此时会调用 [`runtime.gcMarkDone`](https://draveness.me/golang/tree/runtime.gcMarkDone)，除此之外，写操作都会调用 [`runtime.gcWriteBarrier`](https://draveness.me/golang/tree/runtime.gcWriteBarrier)，也就是写屏障；而新创建的对象，则是通过调用 [`runtime.gcmarknewobject`](https://draveness.me/golang/tree/runtime.gcmarknewobject) 完成标记，这部分还有更详细的讲述，可以看[原文的这个地方](https://draveness.me/golang/docs/part3-runtime/ch07-memory/golang-garbage-collector/#%e5%86%99%e5%b1%8f%e9%9a%9c)。
+6. 最后，当所有可达对象都被标记后，该函数会将垃圾收集的状态切换至`_GCmarktermination`，当然如果本地队列中还存在没有处理完的任务，则会被放入全局队列等待处理。随后所有的任务都处理完成，我们便会进行我们标记阶段最后的处理，关闭写屏障，切换状态，唤醒所有协助垃圾收集的用户程序，恢复goroutine的调度并且调用 [`runtime.gcMarkTermination`](https://draveness.me/golang/tree/runtime.gcMarkTermination) 进入标记终止阶段。
+7. 最后的最后，我们会在一定条件下并发执行垃圾的清理工作，我们之前的标记阶段，主要是为了将垃圾标记出来，而现在主要的任务就是将垃圾清理了，但是此时并不会主动的去调用GC进行垃圾处理，而是在一定条件下会执行相应的垃圾处理，比如说我们再执行一次GC，这就是一种触发垃圾回收的条件，还有就是用户申请内存的时候也会触发垃圾的回收，而所有的回收工作最终都是靠 [`runtime.mspan.sweep`](https://draveness.me/golang/tree/runtime.mspan.sweep) 完成的。
+
+**Other：标记辅助**
+
+明天再写~
+
+----
+
