@@ -557,3 +557,118 @@ hi表示栈的起始位置，lo表示结束位置。
 
 ----
 
+## 12. 锁
+
+这部分是我最开始看的，当时还没写笔记，索性最后写了。
+
+### **Mutex**
+
+**数据结构**
+
+```go
+type Mutex struct {
+	state int32
+	sema  uint32
+}
+```
+
+state是mutex的状态，由四个字段组成：
+
+> `mutexLocked` — 表示互斥锁的锁定状态
+>
+> `mutexWoken` — 表示是否有被唤醒的等待者，防止重复唤醒
+>
+> `mutexStarving` — 当前的互斥锁是否进入饥饿模式
+>
+> `waitersCount` — 当前互斥锁上等待的 Goroutine 个数
+
+**Lock**
+
+锁虽然存在自旋的部分，但是长时间自旋只会消耗cpu的资源，所以go语言中对自旋做出了一些限制：
+
+- 处于普通模式
+- 运行在多cpu机器上
+- 当前goroutine自旋次数小于4
+- 当前机器上存在一个正在运行的并且运行队列为空的P。
+
+自旋后，还会计算当前的锁的状态(state)，随后使用CAS(Compare And Swap)来更新状态，如果更新失败，表示交换失败，此时由另一个goroutine已经更新了这个状态，所以无法更新，随后继续下一次循环。
+
+如果此时CAS成功了，我们并不能说他就可以拿到锁了，如果当前锁未处于饥饿模式或者锁定状态，就说明锁定成功，否则进入另一条分支：**排队**，随后调用 `runtime_SemacquireMutex` 让当前 goroutine 挂起，等待信号量将他唤醒。
+
+被唤醒之后，会判断是否处于饥饿状态，如果是，更新状态，进入下一轮循环，值得一提的是，当unlock的时候，会直接判断当时是否由处于饥饿状态的goroutine，然后才会发出信号唤醒相应的goroutine，所以这一轮设置的饥饿模式，在下一轮释放锁的时候才会生效。
+
+**UnLock**
+
+这部分实现逻辑相对比较简单，首先会判断当前处于饥饿模式，如果有，则会才去手递手的形式唤醒饥饿模式的goroutine，否则，直接发出信号，唤醒一个goroutine
+
+### **读写锁**
+
+读写锁是一种更细粒度的锁，当使用读锁时，写锁会被阻塞，而读锁不会，当使用写锁时，读写锁都会被阻塞。
+
+这部分逻辑和**Mutex**差不多，只是多了一个读锁数量的字段，比较简单，适用于读多写少的环境，在这里不多赘述，有兴趣可以去原书阅读。
+
+---
+
+### **WaitGroup**
+
+[`sync.WaitGroup`](https://draveness.me/golang/tree/sync.WaitGroup) 对外暴露了三个方法：[`sync.WaitGroup.Add`](https://draveness.me/golang/tree/sync.WaitGroup.Add)、[`sync.WaitGroup.Wait`](https://draveness.me/golang/tree/sync.WaitGroup.Wait) 和 [`sync.WaitGroup.Done`](https://draveness.me/golang/tree/sync.WaitGroup.Done)。
+
+相信使用过wg的朋友都知道这些方法有什么用，Done仅仅是向Add方法传入了-1，这里不多说，而[`sync.WaitGroup.Add`](https://draveness.me/golang/tree/sync.WaitGroup.Add)和[`sync.WaitGroup.Wait`](https://draveness.me/golang/tree/sync.WaitGroup.Wait) 的实现也比较简单
+
+Add方法会更新wg中的计数器的数量，与此同时，在Add方法的最后，会有一个for循环，向所有正在等待的goroutine发送一个信号来唤醒他们，举个例子，比如当传入的参数为负数，也就是Done方法，此时wg的计数为1，所有调用wait方法的goroutine陷入睡眠，然后通过传入负数，可以唤醒这些goroutine，继续工作。
+
+Wait方法主要就是等待wg的计数器归零，陷入休眠，等待信号，一旦被唤醒，就会退出。
+
+---
+
+### **Once**
+
+[`sync.Once.Do`](https://draveness.me/golang/tree/sync.Once.Do) 是 [`sync.Once`](https://draveness.me/golang/tree/sync.Once) 结构体对外唯一暴露的方法，传入一个函数，如果当前结构体的do方法已经被执行，那么则不会执行，如果还没有执行过，就会执行，简单来说，就是这个Do方法只会生效一次，**这里有一个误区**，部分人以为这里只是让某一个函数只能执行一次，实际上无论你传入什么函数，最终只会有一个函数被调用。
+
+另外，在do方法中，还会调用doslow这个方法，在内部会加上互斥锁保证同一时刻只有一个goroutine执行。
+
+---
+
+### **Cond**
+
+[`sync.Cond`](https://draveness.me/golang/tree/sync.Cond) 对外暴露的 [`sync.Cond.Wait`](https://draveness.me/golang/tree/sync.Cond.Wait) 方法会将当前 Goroutine 陷入休眠状态，这个方法内部很简单，先将计数器加一，随后被加入等待的goroutine链表，陷入睡眠，等待唤醒。
+
+**如何唤醒？**[`sync.Cond.Signal`](https://draveness.me/golang/tree/sync.Cond.Signal) 和 [`sync.Cond.Broadcast`](https://draveness.me/golang/tree/sync.Cond.Broadcast) 就是用来唤醒陷入休眠的 Goroutine 的方法，Signal会唤醒队列最前面的一个goroutine，而broadcast，如其名，会按次序唤醒所有等待的goroutine。
+
+感觉这玩意不常用。
+
+**剩下的同步原语感觉真不熟**
+
+---
+
+### **ErrGroup**
+
+结合了wg，once的精华，通过调用 [`golang/sync/errgroup.Group.Go`](https://draveness.me/golang/tree/golang/sync/errgroup.Group.Go) 方法启动goroutine，然后使用[`golang/sync/errgroup.Group.Wait`](https://draveness.me/golang/tree/golang/sync/errgroup.Group.Wait) 等待所有goroutine执行完毕，并查看是否存在错误。
+
+---
+
+### **Semaphore**
+
+信号量，也可以用来作为流量控制之类的事情，感觉跟Sentinel挺像的。
+
+- [`golang/sync/semaphore.NewWeighted`](https://draveness.me/golang/tree/golang/sync/semaphore.NewWeighted) 用于创建新的信号量。
+- [`golang/sync/semaphore.Weighted.Acquire`](https://draveness.me/golang/tree/golang/sync/semaphore.Weighted.Acquire) 阻塞地获取指定权重的资源，如果当前没有空闲资源，会陷入休眠等待。
+- [`golang/sync/semaphore.Weighted.TryAcquire`](https://draveness.me/golang/tree/golang/sync/semaphore.Weighted.TryAcquire) 非阻塞地获取指定权重的资源，如果当前没有空闲资源，会直接返回 `false`。
+- [`golang/sync/semaphore.Weighted.Release`](https://draveness.me/golang/tree/golang/sync/semaphore.Weighted.Release) 用于释放指定权重的资源，同时会按照**先进先出**的策略唤醒因为无法获取足够的资源而阻塞的goroutine。
+
+---
+
+### **SingleFlight**
+
+虽然作者说用这个可以处理缓存击穿的问题，但是感觉不太常用。
+
+主要就是通过调用 [`golang/sync/singleflight.Group.Do`](https://draveness.me/golang/tree/golang/sync/singleflight.Group.Do)方法，来限制同一时间重复的请求次数，阻塞的等待参数返回，而[`golang/sync/singleflight.Group.DoChan`](https://draveness.me/golang/tree/golang/sync/singleflight.Group.DoChan)会返回一个管道，让你只会去取拿到的返回值，相当于异步执行。
+
+---
+
+
+
+
+
+
+
