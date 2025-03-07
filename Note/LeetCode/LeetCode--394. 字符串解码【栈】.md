@@ -83,6 +83,52 @@ func decodeString(s string) string {
 
 ----
 
-## 结语
+## 二刷
 
-如果有问题，欢迎留言！
+还是遇到了一些问题，距离上次做隔了一个多月，忘了很多。
+
+```go
+func decodeString(s string) string {
+    var strs []string
+    var nums []int
+    i := 0
+    for i < len(s) {
+        if s[i] <= '9' && s[i] >= '0' {
+            num := 0
+            for s[i] <= '9' && s[i] >= '0' && i < len(s) {
+                num = num * 10 + int(s[i] - '0')
+                i ++
+            }
+            nums = append(nums, num)
+        } else if s[i] == '[' {
+            strs = append(strs, "")
+            i ++
+        } else if s[i] == ']' {
+            num := nums[len(nums) - 1]
+            nums = nums[:len(nums) - 1]
+
+            str := strs[len(strs) - 1]
+            strs = strs[:len(strs) - 1]
+
+            pre := ""
+            if len(strs) > 0 {
+                pre = strs[len(strs) - 1]
+                strs = strs[:len(strs) - 1]
+            }
+            for j := 0; j < num; j ++ {
+                pre += str
+            }
+            strs = append(strs, pre)
+            i++
+        } else {
+            if len(strs) == 0 {
+                strs = append(strs, "")
+            }
+            strs[len(strs) - 1] += string(s[i])
+            i ++
+        }
+    }
+    return strs[0]
+}
+```
+
