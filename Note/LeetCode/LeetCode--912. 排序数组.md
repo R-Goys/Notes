@@ -45,3 +45,66 @@ func swap(i, j *int) {
 }
 ```
 
+----
+
+### 二刷，堆排序
+
+直接手写down，pop，up，push
+
+```go
+type Heap []int
+
+func sortArray(nums []int) []int {
+	h := Heap{}
+	for i := 0; i < len(nums); i++ {
+		h.Push(nums[i])
+	}
+	var ans []int
+	for i := 0; i < len(nums); i++ {
+		ans = append(ans, h.Pop())
+	}
+	return ans
+}
+
+func (h *Heap) Push(num int) {
+	*h = append(*h, num)
+	(*h).Up(len(*h) - 1)
+}
+
+func (h *Heap) Up(idx int) {
+	if idx == 0 {
+		return
+	}
+	if (*h)[idx] < (*h)[idx/2] {
+		(*h)[idx], (*h)[idx/2] = (*h)[idx/2], (*h)[idx]
+		(*h).Up(idx / 2)
+	}
+}
+
+func (h *Heap) Down(idx int) {
+	m := idx
+	if len(*h) > idx*2 && (*h)[m] > (*h)[idx*2] {
+		m = idx * 2
+	}
+	if len(*h) > idx*2+1 && (*h)[m] > (*h)[idx*2+1] {
+		m = idx*2 + 1
+	}
+	if m != idx {
+		(*h)[m], (*h)[idx] = (*h)[idx], (*h)[m]
+		(*h).Down(m)
+	}
+	return
+}
+
+func (h *Heap) Pop() int {
+	if len(*h) == 0 {
+		return 0
+	}
+	res := (*h)[0]
+	(*h)[0], (*h)[len(*h)-1] = (*h)[len(*h)-1], (*h)[0]
+	(*h) = (*h)[:len(*h)-1]
+	h.Down(0)
+	return res
+}
+```
+
