@@ -150,7 +150,7 @@ key
 
 redis底层使用C语言实现，这里主要分析底层数据结构
 
-#### **2.1 动态字符串(SDS)**
+#### 2.1 **动态字符串(SDS)**
 
 由于C底层的字符串数组一旦遇到'\0'就会认为这个字符串数组已经结束，意味着无法存储二进制数据（如图片、音频等），为此，redis底层维护了一种数据结构:
 
@@ -279,4 +279,46 @@ Rehash这一步的时候，扩容已经完成，此时首先为h_table[0]中的�
 
 
 ----
+
+#### 2.4 **ZipList**
+
+被称作**双端链表**，可以在头部和尾部实现O(1)的插入和删除，根据这个性质我感觉更像双端队列
+
+ziplist是由一段特殊编码的连续内存块组成的，结构如下：
+
+> zlbytes(存储链表占用的内存长度) -> zltail(记录头节点到尾节点的距离) -> zllen(节点数量) -> entry(节点) -> entry -> entry... -> zlend(结束标识)
+
+其中，每个节点(entry)的长度并不固定，虽然源码中的结构体并不是真正的编码方式，还是在这里列一下吧：
+
+```c
+/* 该结构体用于解析 ziplist 中的条目元信息（非实际存储格式，仅为操作方便而设计） */
+typedef struct zlentry {
+    unsigned int prevrawlensize; // 存储【前一个节点长度】所需的字节数（1或5字节）
+                                 // 规则：若前节点长度<254则用1字节，否则首字节0xFE+4字节长度
+    
+    unsigned int prevrawlen;     // 前一个节点的实际长度（字节数）
+                                 // 作用：通过【当前地址 - prevrawlen】可快速定位前节点
+    
+    unsigned int lensize;        // 存储【当前节点类型/长度】所需的字节数
+                                 // 字符串：1/2/5字节头 | 整数：固定1字节（类型和长度合并编码）
+    
+    unsigned int len;            // 当前节点数据的实际长度（字节数）
+                                 // 字符串：字符数量（如"abc"为3）| 整数：根据类型占1/2/3/4/8字节
+    
+    unsigned int headersize;     // 节点头总大小 = prevrawlensize + lensize
+                                 // 关键用途：p + headersize 直接跳转到数据区域
+    
+    unsigned char encoding;      // 编码类型标记（ZIP_STR_* 或 ZIP_INT_*）
+                                 // 注意：0~12的4位小整数直接存于encoding，需特殊处理
+    
+    unsigned char *p;            // 指向当前节点起始地址（即prevrawlensize字段的位置）
+                                 // 用途：修改节点时可直接操作原始内存
+} zlentry;
+```
+
+看起来很复杂，我们可以简化为以下结构：
+
+> previous_entry_length -> encoding(字符串/整数/长度) -> content
+
+以上的数据在实际的存储结构中都可以灵活改变，也就是说**entry**长度并不固定，这节省了很大的内存
 
