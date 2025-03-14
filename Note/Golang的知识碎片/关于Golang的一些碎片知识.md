@@ -154,7 +154,7 @@ context不是很形象，就和他的名字一样,**上下文**，它可以根�
 
 **文件描述符**：
 
-一个I/O操作，一个tcp连接一个websocket连接或者一个http请求的抽象的表示，用来区分这些请求，方便在唤醒这些事件时执行正确的操作。(**tips**：HTTP请求可能会存在复用文件描述符的情况，但是与之对应的还有`Stream ID`来区分它们，具体的步骤是这样的：**1.**网络轮询器检测到该文件描述符可读。**2.**用 `netpoll`读取文件描述符数据。**3.**发现该描述符属于http请求，使用http解析器解析`Sream ID`来区分不同的请求，并分发给goroutine)
+一个I/O操作，一个tcp连接一个websocket连接或者一个http请求的抽象的表示，用来区分这些请求，方便在唤醒这些事件时执行正确的操作。(**tips**：HTTP请求可能会存在复用文件描述符的情况，但是与之对应的还有`Stream ID`来区分它们，具体的步骤是这样的：**1.**网络轮询器检测到该文件描述符可读。**2.**用 `netpoll`读取文件描述符数据。**3.**发现该描述符属于http请求，使用http解析器解析`Stream ID`来区分不同的请求，并分发给goroutine)
 
 **GO中的网络轮询器**：
 
@@ -170,7 +170,7 @@ context不是很形象，就和他的名字一样,**上下文**，它可以根�
 
 **重新理一下发出I/O请求的思路**，当在一个goroutine中发出I/O请求的时候，将fd注册到epoll中，同时当前goroutine被阻塞，等待fd可读，此时，当前goroutine陷入休眠，线程M执行其他goroutine，直到epoll监听到这个fd可读，再将这个goroutine放入运行队列，等待被执行。
 
-**epoll是谁在执行？**除了之后我们会提到的系统监控，当线程M没有待运行的goroutine的时候，我们的M会调用netpoll来监听fd，此时还会传入一个超时时间，这个时间由最早过期的timer来决定，保证不会错过定时任务，但是还有一种情况，就是如果当前没有timer，也没有goroutine在M上运行，于是M启动了netpoll，陷入阻塞，那么之后资源紧张起来，新创建的goroutine找不到可供使用的M怎么办？此时`runtime.netpollBreak`就被会调用，向管道中发出信号，来终止`poll_wait`的阻塞，以此来让goroutine得到M资源。
+**epoll是谁在执行？**除了之后我们会提到的系统监控，当线程M没有待运行的goroutine的时候，我们的M会调用netpoll来监听fd，此时还会传入一个超时时间，这个时间由最早过期的timer来决定，保证不会错过定时任务，但是还有一种情况，就是如果当前没有timer，也没有goroutine在M上运行，于是M启动了netpoll，陷入阻塞，那么之后资源紧张起来，新创建的goroutine找不到可供使用的M怎么办？此时`runtime.netpollBreak`就被会调用，向管道中发出信号，来终止`poll_wait`的阻塞，以此来让goroutine得到M资源；除此之外**主要由 `Network Poller Thread` 触发 `netpoll`，它是一个独立的系统线程**。
 
 **截止日期**：为每个fd设置截止日期，每个fd都有一个对应的timer，超时则执行回调函数取消该事件，并唤醒goroutine，使其做出相应的处理(重试或取消)
 
