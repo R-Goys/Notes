@@ -12,6 +12,8 @@
 
 ----
 
+## 内置函数
+
 用内置函数很简单，如果不用就是一坨狗屎题，遍历都给你整半天，没吃过⑩的可以尝试去写一下
 
 ```go
@@ -27,6 +29,37 @@ func compareVersion(version1, version2 string) int {
         if i < len(v2) {
             y, _ = strconv.Atoi(v2[i])
         }
+        if x > y {
+            return 1
+        }
+        if x < y {
+            return -1
+        }
+    }
+    return 0
+}
+```
+
+## 双指针
+
+使用双指针，我最开始还想着其他很屎山的做法，看了官方的才发现，哇撒，这么优雅。
+
+```go
+func compareVersion(version1 string, version2 string) int {
+    n, m := len(version1), len(version2)
+    i, j := 0, 0
+    for i < n || j < m {
+        x, y := 0, 0
+        for i < n && version1[i] != '.' {
+            x = x*10 + int(version1[i] - '0')
+            i ++
+        }
+        i++
+        for j < m && version2[j] != '.' {
+            y = y*10 + int(version2[j] - '0')
+            j ++
+        }
+        j ++
         if x > y {
             return 1
         }
