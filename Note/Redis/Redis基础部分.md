@@ -1,4 +1,4 @@
-## Redis
+# Redis基础部分
 
 ----
 
@@ -670,5 +670,105 @@ struct redisObject {
 
 ![QQ_1742027950600](./assets/QQ_1742027950600.png)
 
+
+
 ----
+
+## 5. 分布式缓存
+
+首先如何快速搭建一个redis集群？docker-compose才是版本答案。
+
+```bash
+version: '3.9'
+
+networks:
+  redis-net:  # 定义一个自定义网络
+
+services:
+  redis-master:
+    image: redis:latest
+    container_name: redis-master
+    restart: always
+    networks:
+      - redis-net
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-master.conf:/usr/local/etc/redis/redis.conf
+      - redis-master-data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf
+
+  redis-slave1:
+    image: redis:latest
+    container_name: redis-slave1
+    restart: always
+    depends_on:
+      - redis-master
+    networks:
+      - redis-net
+    ports:
+      - "6380:6379"
+    volumes:
+      - ./redis-slave1.conf:/usr/local/etc/redis/redis.conf
+      - redis-slave1-data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf --replicaof redis-master 6379
+
+  redis-slave2:
+    image: redis:latest
+    container_name: redis-slave2
+    restart: always
+    depends_on:
+      - redis-master
+    networks:
+      - redis-net
+    ports:
+      - "6381:6379"
+    volumes:
+      - ./redis-slave2.conf:/usr/local/etc/redis/redis.conf
+      - redis-slave2-data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf --replicaof redis-master 6379
+volumes:
+  redis-master-data:
+  redis-slave1-data:
+  redis-slave2-data:
+```
+
+
+
+单点redis具有数据丢失，并发能力，存储能力和故障恢复的问题，所以就需要我们提供一定的解决方案。
+
+#### 5.1 **持久化**
+
+**RDB持久化**
+
+全称`Redis Database Backup file`，就是将redis所有数据记录到磁盘上，当redis实例故障重启后，从磁盘读取快照文件，恢复数据，RDB文件默认保存在当前运行目录。
+
+通过`save`命令可以阻塞地保存快照(不推荐)，`bgsave`可以开启子进程执行RDB。
+
+虽然Redis每次停机都会自动做RDB保存，但是如果故障宕机，是不会进行保存的，这样数据就全丢了！所以我们需要redis定期进行RDB保存。
+
+而在redis.conf文件中，可以找到形如
+
+```c
+//900秒内，若至少有一个Key被修改，则执行bgsave.
+save 900 1
+save 300 10
+save 60 10000
+//是否压缩，不推荐，压缩会消耗cpu，且硬盘不值钱
+rdbcompression yes
+//RDB文件名称
+dbfilename dump.rdb
+//文件保存的路径目录
+dir ./
+```
+
+的配置文件，如果是`save ""`则表示禁用RDB。
+
+除此之外，bgsave是通过fork()来得到一个子进程，在子进程中读取内存数据，然后写入RDB文件，在这里事实上就是操作系统的知识了，值得一提的是，fork()采取了写时复制(Copy On Write)的策略，在fork()一个进程的时候，仅仅是复制了页表，并不会真正将数据拷贝到新的地址空间，事实上这两个进程在底层最开始是共享地址空间的，而当其中一个进程进行写入操作时，才会真正的将**部分数据(数据被修改的页)**进行拷贝，让这部分数据迁移到新的地址空间，从而实现父进程和子进程互不干扰，Redis采取**fork()** + **COW**这样避免大规模内存复制，从而提高了性能，但是这种模式可能会导致**脏页**和**数据不一致**的情况发生。
+
+
+
+**AOF持久化**
+
+
 
