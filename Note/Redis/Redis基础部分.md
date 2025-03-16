@@ -756,10 +756,8 @@ auto-aof-rewrite-min-size 64mb  //AOF文件体积最小多大以上才触发重�
 首先如何快速搭建一个redis集群？docker-compose才是版本答案。
 
 ```c
-version: '3.9'
-
 networks:
-  redis-net:  # 自定义 Redis 网络
+  redis-net: 
 
 services:
   redis-master:
@@ -813,7 +811,7 @@ services:
       - redis-net
     ports:
       - "26379:26379"
-    command: "redis-server /etc/redis-config/redis.conf --sentinel"
+    command: "redis-server /etc/redis-config/redis1.conf --sentinel"
     volumes:
       - "./config/redis-sentinel:/etc/redis-config"
     depends_on:
@@ -828,7 +826,7 @@ services:
       - redis-net
     ports:
       - "26380:26379"
-    command: "redis-server /etc/redis-config/redis.conf --sentinel"
+    command: "redis-server /etc/redis-config/redis2.conf --sentinel"
     volumes:
       - "./config/redis-sentinel:/etc/redis-config"
     depends_on:
@@ -843,7 +841,7 @@ services:
       - redis-net
     ports:
       - "26381:26379"
-    command: "redis-server /etc/redis-config/redis.conf --sentinel"
+    command: "redis-server /etc/redis-config/redis3.conf --sentinel"
     volumes:
       - "./config/redis-sentinel:/etc/redis-config"
     depends_on:
@@ -859,6 +857,7 @@ volumes:
   sentinel_data1:
   sentinel_data2:
   sentinel_data3:
+
 ```
 
 如果不想要用docker部署咋办？[看这里](https://www.bilibili.com/video/BV1cr4y1671t?vd_source=0bf1193df544e31410c7f86025afb72b&spm_id_from=333.788.player.switch&p=101)。
