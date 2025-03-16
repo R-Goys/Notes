@@ -676,65 +676,6 @@ struct redisObject {
 
 ## 5. 分布式缓存
 
-首先如何快速搭建一个redis集群？docker-compose才是版本答案。
-
-```bash
-version: '3.9'
-
-networks:
-  redis-net:  # 定义一个自定义网络
-
-services:
-  redis-master:
-    image: redis:latest
-    container_name: redis-master
-    restart: always
-    networks:
-      - redis-net
-    ports:
-      - "6379:6379"
-    volumes:
-      - ./redis-master.conf:/usr/local/etc/redis/redis.conf
-      - redis-master-data:/data
-    command: redis-server /usr/local/etc/redis/redis.conf
-
-  redis-slave1:
-    image: redis:latest
-    container_name: redis-slave1
-    restart: always
-    depends_on:
-      - redis-master
-    networks:
-      - redis-net
-    ports:
-      - "6380:6379"
-    volumes:
-      - ./redis-slave1.conf:/usr/local/etc/redis/redis.conf
-      - redis-slave1-data:/data
-    command: redis-server /usr/local/etc/redis/redis.conf --replicaof redis-master 6379
-
-  redis-slave2:
-    image: redis:latest
-    container_name: redis-slave2
-    restart: always
-    depends_on:
-      - redis-master
-    networks:
-      - redis-net
-    ports:
-      - "6381:6379"
-    volumes:
-      - ./redis-slave2.conf:/usr/local/etc/redis/redis.conf
-      - redis-slave2-data:/data
-    command: redis-server /usr/local/etc/redis/redis.conf --replicaof redis-master 6379
-volumes:
-  redis-master-data:
-  redis-slave1-data:
-  redis-slave2-data:
-```
-
-
-
 单点redis具有数据丢失，并发能力，存储能力和故障恢复的问题，所以就需要我们提供一定的解决方案。
 
 #### 5.1 **持久化**
@@ -770,5 +711,161 @@ dir ./
 
 **AOF持久化**
 
+AOF，全称Append Only File(追加文件)。redis处理的每一个写命令都会追加到AOF文件中，可以看成是日志文件。
 
+而故障宕机，再恢复，只需要一个一个再将AOF文件中保存的命令再执行一遍即可，默认关闭。
+
+相比与RDB，数据具有一致性，不会产生脏页的情况，配置文件如下：
+
+```c
+appendonly yes //是否开启AOF功能
+appendfilename "appendonly.aof"  //AOF文件的名称
+    
+appendfsync always  //是否每执行一条写命令，立即记录到aof文件(性能差)
+appendfsync everysec   //写命令执行完先放入aof缓冲区，然后每隔一秒将缓冲区数据写道AOF(默认，性能大于always)
+appendfsync no		//写命令执行完放入AOF缓冲区，由操作系统决定何时写回磁盘，(性能最高，但是可靠性差)
+```
+
+缺点是数据冗余更多，如果多次对一个key进行复制，那么就会产生冗余的记录，但是可以通过执行`bgrewriteaof`(后台异步处理)命令让AOF文件执行重写功能，对命令进行优化，尽管如此，AOF文件依旧很大。
+
+`bgrewriteaof`也存在配置文件使得可以自动重写aif文件：
+
+```c
+auto-aof-rewirte-percentage 100  //AOF文件比上次增长超过多少百分比触发重写
+auto-aof-rewrite-min-size 64mb  //AOF文件体积最小多大以上才触发重写
+```
+
+**两者对比**
+
+| 特性           | RDB                                          | AOF                                                      |
+| -------------- | -------------------------------------------- | -------------------------------------------------------- |
+| 持久化方式     | 定时对整个内存做快照                         | 记录每一次执行的命令                                     |
+| 数据完整性     | 不完整，两次备份之间会丢失                   | 相对完整，取决于刷盘策略                                 |
+| 文件大小       | 会有压缩，文件体积小                         | 记录命令，文件体积很大                                   |
+| 宕机恢复速度   | 很快                                         | 慢                                                       |
+| 数据恢复优先级 | 低，因为数据完整性不如AOF                    | 高，因为数据完整性更高                                   |
+| 系统资源占用   | 高，大量CPU和内存消耗                        | 低，主要是磁盘IO资源，但AOF重写时会占用大量CPU和内存资源 |
+| 使用场景       | 可以容忍数分钟的数据丢失，追求更快的启动速度 | 对数据安全性要求较高常见                                 |
+
+
+
+---
+
+#### 5.2 **主从集群**
+
+首先如何快速搭建一个redis集群？docker-compose才是版本答案。
+
+```c
+version: '3.9'
+
+networks:
+  redis-net:  # 自定义 Redis 网络
+
+services:
+  redis-master:
+    image: redis:latest
+    container_name: redis-master
+    restart: always
+    networks:
+      - redis-net
+    ports:
+      - "6379:6379"
+    command: "redis-server /etc/redis-config/redis.conf"
+    volumes:
+      - "./data/master:/data/"
+      - "./config/redis-master:/etc/redis-config"
+      
+  redis-slave1:
+    image: redis:latest
+    container_name: redis-slave1
+    restart: always
+    depends_on:
+      - redis-master
+    networks:
+      - redis-net
+    ports:
+      - "6380:6379"
+    command: "redis-server /etc/redis-config/redis.conf --replicaof redis-master 6379"
+    volumes:
+      - "./data/slave1:/data/"
+      - "./config/redis-slave:/etc/redis-config"
+
+  redis-slave2:
+    image: redis:latest
+    container_name: redis-slave2
+    restart: always
+    depends_on:
+      - redis-master
+    networks:
+      - redis-net
+    ports:
+      - "6381:6379"
+    command: "redis-server /etc/redis-config/redis.conf --replicaof redis-master 6379"
+    volumes:
+      - "./data/slave2:/data/"
+      - "./config/redis-slave:/etc/redis-config"
+
+
+  sentinel1:
+    image: redis:latest
+    container_name: redis-sentinel1
+    networks:
+      - redis-net
+    ports:
+      - "26379:26379"
+    command: "redis-server /etc/redis-config/redis.conf --sentinel"
+    volumes:
+      - "./config/redis-sentinel:/etc/redis-config"
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+
+  sentinel2:
+    image: redis:latest
+    container_name: redis-sentinel2
+    networks:
+      - redis-net
+    ports:
+      - "26380:26379"
+    command: "redis-server /etc/redis-config/redis.conf --sentinel"
+    volumes:
+      - "./config/redis-sentinel:/etc/redis-config"
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+      
+  sentinel3:
+    image: redis:latest
+    container_name: redis-sentinel3
+    networks:
+      - redis-net
+    ports:
+      - "26381:26379"
+    command: "redis-server /etc/redis-config/redis.conf --sentinel"
+    volumes:
+      - "./config/redis-sentinel:/etc/redis-config"
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+      
+
+volumes:
+  redis-master-data:
+  redis-slave1-data:
+  redis-slave2-data:
+  sentinel_data1:
+  sentinel_data2:
+  sentinel_data3:
+```
+
+如果不想要用docker部署咋办？[看这里](https://www.bilibili.com/video/BV1cr4y1671t?vd_source=0bf1193df544e31410c7f86025afb72b&spm_id_from=333.788.player.switch&p=101)。
+
+----
+
+**为什么需要主从集群？**
+
+单节点的Redis并发能力是有上限的，为了提高redis的并发能力，就需要这样一个集群，从而实现读写分离。
 
