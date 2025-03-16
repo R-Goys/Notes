@@ -868,3 +868,108 @@ volumes:
 
 单节点的Redis并发能力是有上限的，为了提高redis的并发能力，就需要这样一个集群，从而实现读写分离。
 
+**主从同步原理**
+
+主从第一次同步是全量同步，我们可以看到，在docker-compose里面有一个replicaof命令，这就是建立主从同步的连接，在执行这个命令的时候，先会尝试**增量同步**，如果判断为无法进行增量同步，即判断为不是第一次执行该命令，此时则先要返回主节点数据的版本信息，然后从节点将版本信息保存，确保版本信息的记录，这样可以做一个版本控制，然后主节点执行`bgsave`命令，生成RDB文件之后，将RDB文件发给从节点，保持数据**基本一致**，我们知道RDB是可能产生数据不一致的情况的，所以我们的Redis还有一个缓冲区`repl_baklog`记录我们在执行bgsave之后输入的命令，随后发送给从节点。
+
+master如何知道从节点是否为第一次同步？，这里有两个概念：
+
+**replid(Replication Id)**，id一致说明是同一个数据集，每一个master都有唯一的replid，slave则会继承master的replid，如果请求同步的时候，ID不一致，主节点会拒绝增量同步，同时将RDB文件发给slave做全量同步，然后slave清空本地数据，加载master的RDB
+
+**offset**：随着记录在repl_baklog的数据增多，offset也会增大，这表示slave同步的位置，有了它，master便能持续向slave同步数据。
+
+如此，master便能判断如何同步数据(replid)，是否需要同步数据，需要同步哪些数据(offset)。
+
+除此之外，`repl_baklog`实际上是一个**环形**的**数组**，大小具有上限，记录也是以环形的方式记录，主从的差异不超过`repl_baklog`缓冲区的大小，理论上都能进行增量同步，但是一旦slave宕机，master不断记录数据，使得两者的差距超过了缓冲区，此时，只能去做全量同步。
+
+但是可以通过以下方式减小影响：
+
+1. 在master中配置`repl-diskless-sync yes`来启动无磁盘复制，这里直接在写入数据的时候，将数据写到网络中，发送给slave(适用于网络带宽快的场景)
+2. 尽量减小Redis单节点内存占用，防止RDB导致的过多的磁盘IO。
+3. 适当提高`repl_baklog`的大小，尽快恢复宕机的slave。
+4. 限制一个master的slave节点，可以采取主-从-从的链式结构扩展集群。
+
+**全量和增量的区别？**
+
+- **全量同步**：master将完成内存数据生成RDB发送给slave，过程中写入的命令存入`repl_baklog`，逐个发送给slave。
+
+- **增量同步**：slave提交自己的offset给master，master获取`repl_baklog`在offset之后的命令同步给slave。
+
+**何时执行全量同步？**
+
+- 主从节点第一次连接时(两者的replid不一样)
+- slave节点断开太久，offset在`repl_baklog`中(主从命令差距过大)已经被覆盖的时候。
+
+**何时执行增量同步？**
+
+- slave断开又恢复，同时offset未被覆盖。
+
+#### 5.3 **哨兵(Sentinel)**
+
+综上所述，在主从集群中，虽然slave宕机之后，还可以持续进行同步，但是如果master宕机之后怎么办？这里就需要引入我们的**哨兵(Sentinel)集群**来监控我们的主从集群了，在刚刚的docker-compose文件中，我已经引入了哨兵节点。
+
+- **监控**：sentinel会不断检查master和slave是否按预期工作。
+- **自动故障恢复**：若master故障，sentinel会主动的选拔一个slave为新的master，故障恢复之后，一会以这个新的master为主。
+- **通知**：通过go-redis通知我们新的master。
+
+而Sentinel是基于心跳机制检测服务状态，每隔1s会向集群的每个实例发送ping命令，如果没有响应，则该Sentinel**主观**地认为该实例下线，如果超过`quorum`配置设定的数量的sentinel认为该节点下线，则该实例**客观下线**。
+
+但是如果我们的golang-redis客户端需要连接到redis就会出现问题，因为地址已经写死了，但是**go-redis**是支持通过sentinel访问当前的主节点的！[go-redis](https://redis.uptrace.dev/zh/guide/go-redis-sentinel.html)
+
+```go
+func main() {
+	client := redis.NewFailoverClient(&redis.FailoverOptions{
+		MasterName:    "mymaster",
+		SentinelAddrs: []string{":26379", ":26380", ":26381"},
+	})
+	fmt.Println("Redis client created")
+	defer client.Close()
+	ctx := context.Background()
+	pong, err := client.Ping(ctx).Result()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Ping result:", pong)
+}
+```
+
+在终端输入`go run main.go`就可以得到：
+
+```c
+Redis client created
+redis: 2025/03/16 18:52:28 sentinel.go:745: sentinel: discovered new sentinel="172.21.0.5:26379" for master="mymaster"
+redis: 2025/03/16 18:52:28 sentinel.go:745: sentinel: discovered new sentinel="172.21.0.6:26379" for master="mymaster"
+redis: 2025/03/16 18:52:28 sentinel.go:709: sentinel: new master="mymaster" addr="172.21.0.4:6379"
+Ping result: PONG
+```
+
+这一流程也可以看作是**服务的发现和注册**，相当于是sentinel将用户的命令分发给了相对应的master。
+
+而当我们主动的去`docker-compose stop redis-master`哨兵集群可以重新执行选举。
+
+```c
+Redis client created
+redis: 2025/03/16 19:45:30 sentinel.go:745: sentinel: discovered new sentinel="172.21.0.6:26379" for master="mymaster"
+redis: 2025/03/16 19:45:30 sentinel.go:745: sentinel: discovered new sentinel="172.21.0.7:26379" for master="mymaster"
+redis: 2025/03/16 19:45:30 sentinel.go:709: sentinel: new master="mymaster" addr="172.21.0.3:6379"
+Ping result: PONG
+```
+
+如果失败的话，很有可能是防火墙没有开启，当然如果有其他问题，欢迎留言。
+
+在仓库的config中，给定了相对应的配置文件，在其中可以配置判断master断连的时间长度，以及故障转移地超时时间
+
+而`slave-priority`也是一个从节点被选举为主节点的权重，如果为0，永远不参与选举，除此之外就是`offset`参数，值越大，代表数据越新，优先级也越高。
+
+**故障转移的过程是怎么样的？**
+
+1. sentinel给被选拔的slave1节点发送`slaveof no one`命令，使其成为master
+2. sentinel给所有其他的slave发送`slave of [新master的ip] [新master的port]`，让这些slave成为新master的从节点，开始从新的master上同步数据。
+3. 最后，sentinel将故障节点标记为slave，恢复之后会成为新的master的slave。
+
+
+
+---
+
+#### 5.4 **分片集群**
+
