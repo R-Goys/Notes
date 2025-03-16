@@ -973,3 +973,144 @@ Ping result: PONG
 
 #### 5.4 **分片集群**
 
+如何用docker-compose启动集群？
+
+```go
+services:
+  redis-7001:
+    image: redis:latest
+    container_name: redis-7001
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7001:/usr/local/etc/redis
+      - ./7001/data:/data
+    ports:
+      - "7001:7001"
+    networks:
+      - redis-cluster
+
+  redis-7002:
+    image: redis:latest
+    container_name: redis-7002
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7002:/usr/local/etc/redis
+      - ./7002/data:/data
+    ports:
+      - "7002:7002"
+    networks:
+      - redis-cluster
+      
+  redis-7003:
+    image: redis:latest
+    container_name: redis-7003
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7003:/usr/local/etc/redis
+      - ./7003/data:/data
+    ports:
+      - "7003:7003"
+    networks:
+      - redis-cluster
+
+  redis-7004:
+    image: redis:latest
+    container_name: redis-7004
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7004:/usr/local/etc/redis
+      - ./7004/data:/data
+    ports:
+      - "7004:7004"
+    networks:
+      - redis-cluster
+      
+  redis-7005:
+    image: redis:latest
+    container_name: redis-7005
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7005:/usr/local/etc/redis
+      - ./7005/data:/data
+    ports:
+      - "7005:7005"
+    networks:
+      - redis-cluster
+
+  redis-7006:
+    image: redis:latest
+    container_name: redis-7006
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7006:/usr/local/etc/redis
+      - ./7006/data:/data
+    ports:
+      - "7006:7006"
+    networks:
+      - redis-cluster
+      
+networks:
+  redis-cluster:
+    driver: bridge
+```
+
+将上面的内容写入docker-compose.yml，然后放在我给定的配置文件中，`docker-compose up -d`之后，输入
+
+`docker exec -it redis-7001 redis-cli --cluster create redis-7001:7001 redis-7002:7002 redis-7003:7003 redis-7004:7004 redis-7005:7005 redis-7006:7006 --cluster-replicas 1`，然后输入yes，即可成功搭建一主一从的分片集群。
+
+[Go Redis](https://redis.uptrace.dev/zh/)官方也提供了分片集群的连接方式，而当我们运行以下程序的时候，我们就会看到key，val存入读取成功，并且主从节点分明：
+
+```go
+func main() {
+	ctx := context.Background()
+	rdb := redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs: []string{
+			"localhost:7001",
+			"localhost:7002",
+			"localhost:7003",
+			"localhost:7004",
+			"localhost:7005",
+			"localhost:7006",
+		},
+	})
+	if err := rdb.Set(ctx, "key", "value", 0).Err(); err != nil {
+		panic(err)
+	}
+	val, err := rdb.Get(ctx, "key").Result()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(val)
+	err = rdb.ForEachMaster(ctx, func(ctx context.Context, master *redis.Client) error {
+		fmt.Println(master, "is master")
+		return master.Ping(ctx).Err()
+	})
+	if err != nil {
+		panic(err)
+	}
+	err = rdb.ForEachSlave(ctx, func(ctx context.Context, slave *redis.Client) error {
+		fmt.Println(slave, "is slave")
+		return slave.Ping(ctx).Err()
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+```
+
+而当我们进入到容器的内部(可以直接用tiny RDB远程连接，更方便)，我们会看见key只被存入了其中一组主从节点，到这里，我们还需要`docker-compose stop`来让我们的主节点全部挂掉，然后再次执行上面这个程序，我们会发现，所有的从节点都成为了主节点！并且数据的输入也成功了，如果你没有成功，不要着急，也许是你运行的太快了，还没有来得及选举，那么到这里，我们的分片集群的搭建就完成了。
+
+但是我这里实践的时候，在第一次主节点全部挂掉之后，重新启动貌似有运行不了，目前我还没解决这个问题，只能重新配置一遍...
+
+---
+
+**主从集群的优势**
+
+主从集群可以去应对读多写少的问题，但是应对海量的数据存储和高并发写就显得不尽人意了。
+
+而分片集群，则可以解决这两个问题，下面是分片集群的特点：
+
+- 集群中有多个master，每个master保存不同的数据(海量存储和高并发写)
+- 每个master都可以由多个slave节点(应对高并发读)
+- master之间可以通过ping检测彼此健康状态(无需哨兵节点)
+- 客户端可以访问集群任意节点，而最终请求会被转发到正确的节点。

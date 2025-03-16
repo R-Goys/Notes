@@ -1,0 +1,102 @@
+networks:
+  redis-net: 
+
+services:
+  redis-master:
+    image: redis:latest
+    container_name: redis-master
+    restart: always
+    networks:
+      - redis-net
+    ports:
+      - "6379:6379"
+    command: "redis-server /etc/redis-config/redis.conf"
+    volumes:
+      - "./data/master:/data/"
+      - "./config/redis-master:/etc/redis-config"
+      
+  redis-slave1:
+    image: redis:latest
+    container_name: redis-slave1
+    restart: always
+    depends_on:
+      - redis-master
+    networks:
+      - redis-net
+    ports:
+      - "6380:6379"
+    command: "redis-server /etc/redis-config/redis.conf --replicaof redis-master 6379"
+    volumes:
+      - "./data/slave1:/data/"
+      - "./config/redis-slave:/etc/redis-config"
+
+  redis-slave2:
+    image: redis:latest
+    container_name: redis-slave2
+    restart: always
+    depends_on:
+      - redis-master
+    networks:
+      - redis-net
+    ports:
+      - "6381:6379"
+    command: "redis-server /etc/redis-config/redis.conf --replicaof redis-master 6379"
+    volumes:
+      - "./data/slave2:/data/"
+      - "./config/redis-slave:/etc/redis-config"
+
+
+  sentinel1:
+    image: redis:latest
+    container_name: redis-sentinel1
+    networks:
+      - redis-net
+    ports:
+      - "26379:26379"
+    command: "redis-server /etc/redis-config/redis1.conf --sentinel"
+    volumes:
+      - "./config/redis-sentinel:/etc/redis-config"
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+
+  sentinel2:
+    image: redis:latest
+    container_name: redis-sentinel2
+    networks:
+      - redis-net
+    ports:
+      - "26380:26379"
+    command: "redis-server /etc/redis-config/redis2.conf --sentinel"
+    volumes:
+      - "./config/redis-sentinel:/etc/redis-config"
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+      
+  sentinel3:
+    image: redis:latest
+    container_name: redis-sentinel3
+    networks:
+      - redis-net
+    ports:
+      - "26381:26379"
+    command: "redis-server /etc/redis-config/redis3.conf --sentinel"
+    volumes:
+      - "./config/redis-sentinel:/etc/redis-config"
+    depends_on:
+      - redis-master
+      - redis-slave1
+      - redis-slave2
+      
+
+volumes:
+  redis-master-data:
+  redis-slave1-data:
+  redis-slave2-data:
+  sentinel_data1:
+  sentinel_data2:
+  sentinel_data3:
+

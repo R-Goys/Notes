@@ -1,0 +1,76 @@
+services:
+  redis-7001:
+    image: redis:latest
+    container_name: redis-7001
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7001:/usr/local/etc/redis
+      - ./7001/data:/data
+    ports:
+      - "7001:7001"
+    networks:
+      - redis-cluster
+
+  redis-7002:
+    image: redis:latest
+    container_name: redis-7002
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7002:/usr/local/etc/redis
+      - ./7002/data:/data
+    ports:
+      - "7002:7002"
+    networks:
+      - redis-cluster
+      
+  redis-7003:
+    image: redis:latest
+    container_name: redis-7003
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7003:/usr/local/etc/redis
+      - ./7003/data:/data
+    ports:
+      - "7003:7003"
+    networks:
+      - redis-cluster
+
+  redis-7004:
+    image: redis:latest
+    container_name: redis-7004
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7004:/usr/local/etc/redis
+      - ./7004/data:/data
+    ports:
+      - "7004:7004"
+    networks:
+      - redis-cluster
+      
+  redis-7005:
+    image: redis:latest
+    container_name: redis-7005
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7005:/usr/local/etc/redis
+      - ./7005/data:/data
+    ports:
+      - "7005:7005"
+    networks:
+      - redis-cluster
+
+  redis-7006:
+    image: redis:latest
+    container_name: redis-7006
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./7006:/usr/local/etc/redis
+      - ./7006/data:/data
+    ports:
+      - "7006:7006"
+    networks:
+      - redis-cluster
+      
+networks:
+  redis-cluster:
+    driver: bridge
