@@ -987,7 +987,8 @@ services:
     ports:
       - "7001:7001"
     networks:
-      - redis-cluster
+      redis-cluster:
+        ipv4_address: 172.21.0.2
 
   redis-7002:
     image: redis:latest
@@ -999,7 +1000,8 @@ services:
     ports:
       - "7002:7002"
     networks:
-      - redis-cluster
+      redis-cluster:
+        ipv4_address: 172.21.0.3
       
   redis-7003:
     image: redis:latest
@@ -1011,7 +1013,8 @@ services:
     ports:
       - "7003:7003"
     networks:
-      - redis-cluster
+      redis-cluster:
+        ipv4_address: 172.21.0.4
 
   redis-7004:
     image: redis:latest
@@ -1023,7 +1026,8 @@ services:
     ports:
       - "7004:7004"
     networks:
-      - redis-cluster
+      redis-cluster:
+        ipv4_address: 172.21.0.5
       
   redis-7005:
     image: redis:latest
@@ -1035,7 +1039,8 @@ services:
     ports:
       - "7005:7005"
     networks:
-      - redis-cluster
+      redis-cluster:
+        ipv4_address: 172.21.0.6
 
   redis-7006:
     image: redis:latest
@@ -1047,11 +1052,16 @@ services:
     ports:
       - "7006:7006"
     networks:
-      - redis-cluster
+      redis-cluster:
+        ipv4_address: 172.21.0.7
       
 networks:
   redis-cluster:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+
 ```
 
 将上面的内容写入docker-compose.yml，然后放在我给定的配置文件中，`docker-compose up -d`之后，输入
@@ -1100,7 +1110,7 @@ func main() {
 
 而当我们进入到容器的内部(可以直接用tiny RDB远程连接，更方便)，我们会看见key只被存入了其中一组主从节点，到这里，我们还需要`docker-compose stop`来让我们的主节点全部挂掉，然后再次执行上面这个程序，我们会发现，所有的从节点都成为了主节点！并且数据的输入也成功了，如果你没有成功，不要着急，也许是你运行的太快了，还没有来得及选举，那么到这里，我们的分片集群的搭建就完成了。
 
-但是我这里实践的时候，在第一次主节点全部挂掉之后，重新启动貌似有运行不了，目前我还没解决这个问题，只能重新配置一遍...
+但是我这里实践的时候，我第一次弄集群，没有做固定的ip，在第一次主节点全部挂掉之后，虽然单独重新启动这些节点还能运行，但是一旦所有重新启动一次，节点的地址就会刷新，然后就用不了了(?)，目前的解决办法就是指定一个ip来避免这个问题，这个我已经在配置文件里面放好了
 
 ---
 
@@ -1114,3 +1124,69 @@ func main() {
 - 每个master都可以由多个slave节点(应对高并发读)
 - master之间可以通过ping检测彼此健康状态(无需哨兵节点)
 - 客户端可以访问集群任意节点，而最终请求会被转发到正确的节点。
+
+**散列插槽**
+
+redis会将每一个master节点映射到0~16383的插槽上，这个在我们创建集群或者查看集群信息的时候可以看见。
+
+我们知道，在分片集群中，不同的key会被映射到不同的主从集群上，而实现这一点的，正是插槽，**事实上**，key并非是映射到主从集群上，通过哈希算法计算哈希值并对16384取模，随后映射到了插槽上面，而这些插槽则对应了相应的主从集群，这跟我们的一致性哈希有点类似。
+
+散列插槽在在master宕机时，可以将该matser对应的插槽转移，扩容时，会将插槽重新分配，同时Key也会转移到新的节点上，使得过去存储的key不会因为扩容的影响而失效。
+
+除此之外，当我们需要将同一类数据保存在同一个redis实例上的时候，我们可以在这个Key上加上一些相同的部分比如说`{类型id}:商品id`作为key，然后使用类型id来计算哈希值，而`Redis Cluster`默认只对大括号里面的内容计算哈希值。
+
+**集群伸缩**
+
+`redis cluster`集群支持扩容功能，我们可以通过`redis-cli cluster addnode`来添加节点，需要执行被添加的节点的和集群主节点的`ip:port`，同时也可以执行是否为slave，是谁的slave。
+
+但是在加入集群的时候，这个节点还没有被分配任何插槽，我们可以通过`redis-cli cluster reshard [从哪里分配的ip:port]`来获取新的插槽，然后输入分配的数量，以及分配到哪里，这样就可以完成我们的插槽分配了，这里再提一下，即便之前输入的数据是存在旧集群里面的节点上，但是在这里，我们如果将某个key对应的插槽分配给新的节点，那么我们的数据会被迁移到这个新的节点上，简单来说，**数据是跟着插槽走的，不是跟着节点。**
+
+如果要删除一个节点该怎么做？首先，我们不能直接删除，我们需要先将这个节点的插槽移给其他节点，然后执行`redis-cli -p [port] cluster delslots [所有该节点管理过的槽]`，来让该master取消对这些槽的管理，随后执行`redis-cli -p [主节点的port] cluster forget [被删的node_id]`当然，如果删除一个从节点就简单得多，直接执行forget命令即可。
+
+**故障转移**
+
+即便`Redis Cluster`没有哨兵，但是他依旧能够实现故障转移的功能，当集群中一个master宕机，其slave会被升级为一个新的master。
+
+当然有时我们也需要通过手动来实现故障转移，比如说新机器替换老旧机器，在新的slave中执行`cluster failover`来手动让其master宕机，从而该slave成为新的master，而这样默认的安全模式可以实现**无感知的数据迁移**，如果是机器自己宕机或者说是`force/takeover`模式的话，就可能有部分的数据无法同步，造成数据丢失
+
+## 6. 多级缓存
+
+多级缓存就是充分利用请求处理的每个环节，分别增加缓存，减少数据库的压力。
+
+> 浏览器客户端缓存->Nginx本地缓存->本地缓存->Redis缓存->数据库
+
+**本地缓存**
+
+如哈希表之类的数据结构，可以作为本地的缓存，优点是读取本地内存，没有网络开销，但是在微服务分布式架构中不适用，无法在多台机器中共享，可能导致数据不一致。
+
+在golang中，我们可以使用go-cache/BigCache这些第三方库来实现本地缓存
+
+**初识Lua**
+
+Ubuntu：`sudo apt install lua5.3`
+
+lua的打印，语法貌似跟js一样不太严格：
+
+```lua
+print("Hello, Lua!")
+```
+
+编译运行输入`lua 文件名称`
+
+数据类型：
+
+| 数据类型 | 描述                                                         |
+| -------- | ------------------------------------------------------------ |
+| nil      | 这个最简单，只有值 nil 属于该类，表示一个无效值（在条件表达式中相当于 false）。 |
+| boolean  | 布尔值                                                       |
+| number   | 双精度浮点数                                                 |
+| string   | 字符串由一对双引号或单引号来表示                             |
+| function | 由 C 或 Lua 编写的函数，也是一个类型                         |
+| table    | 可以当作数组，也可以当作哈希表，同一个table的键值可以是不同类型的，很灵活，甚至可以看成是结构体，值也可以是函数，t[n]可以写作t.n |
+
+```lua
+t = {}
+t['golang'] = "awesome";
+print(t.golang)
+```
+
