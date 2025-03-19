@@ -108,3 +108,52 @@ func (h *Heap) Pop() int {
 }
 ```
 
+### 三刷，手撕归并
+
+```go
+func sortArray(nums []int) []int {
+    MergeSort(nums, 0, len(nums) - 1)
+    return nums
+}
+
+
+func MergeSort(nums []int, left, right int) {
+    if left >= right {
+        return
+    }
+    mid := (left + right) / 2
+
+    MergeSort(nums, left, mid)
+    MergeSort(nums, mid + 1, right)
+
+    tmp := make([]int, 0)
+    i, j := left, mid + 1
+    for i <= mid && j <= right {
+        if nums[i] < nums[j] {
+            tmp = append(tmp, nums[i])
+            i ++
+        } else {
+            tmp = append(tmp, nums[j])
+            j ++
+        }
+    }
+    for j <= right {
+        tmp = append(tmp, nums[j])
+        j ++
+    }
+    for i <= mid {
+        tmp = append(tmp, nums[i])
+        i ++
+    }
+    if len(tmp) != right - left + 1 {
+        return
+    }
+    k, m := left, 0
+    for k <= right {
+        nums[k] = tmp[m]
+        k ++
+        m ++
+    }
+}
+```
+
