@@ -110,3 +110,36 @@ func check(nums1, nums2 []int, length, base, mod int) bool {
 }
 ```
 
+滑动窗口，一开始还不是很理解，这也能滑动窗口？反应过来的时候感觉好厉害的思路
+
+总体来说就是使用一个偏移量去依次比对，空间复杂度O(1)
+
+```GO
+func findLength(nums1 []int, nums2 []int) int {
+    n, m := len(nums1), len(nums2)
+    ans := 0
+    for i := 0; i < n; i ++ {
+        top := min(m, n - i)
+        ans = max(ans, maxLen(nums1, nums2, i, 0, top))
+    }
+    for i := 0; i < m; i ++ {
+        top := min(m - i, n)
+        ans = max(ans, maxLen(nums1, nums2, 0, i, top))
+    }
+    return ans
+}
+
+func maxLen(nums1 []int, nums2 []int, offset1, offset2, top int) int {
+    maxlen, k := 0, 0
+    for i := 0; i < top; i ++ {
+        if nums1[offset1 + i] == nums2[offset2 + i] {
+            k ++
+        } else {
+            k = 0
+        }
+        maxlen = max(maxlen, k)
+    }
+    return maxlen
+}
+```
+
