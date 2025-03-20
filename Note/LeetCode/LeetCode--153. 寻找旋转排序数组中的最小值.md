@@ -17,14 +17,10 @@
 
 ```go
 func findMin(nums []int) int {
-    n := len(nums) - 1
-    l, r := 0, n
-    if nums[l] <= nums[r] {
-        return nums[l]
-    }
+    l, r := 0, len(nums) - 1
     for l < r {
         mid := (l + r) / 2
-        if nums[mid] >= nums[0] {
+        if nums[mid] >= nums[r] {
             l = mid + 1
         } else {
             r = mid
