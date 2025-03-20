@@ -20,7 +20,7 @@
 
 ### 1.2 **生产者**
 
-当生产者生产消息的时候，会经过producer->拦截器(可选)->序列化器->分区器->RecordAccumulator
+当生产者生产消息的时候，会经过producer->序列化器->拦截器(可选)->分区器->RecordAccumulator
 
 分区器会将消息的数据进行分区，而对应的消息会被发到`RecordAccumulator`，此时还没有将数据发送，当数据积累到batch.size(默认16k)之后，Sender才会发送数据，当然，如果数据量比较少，滞留的时间超过`linger.ms`设定的时间，就会发送消息，但是默认`linger.ms`是0ms，也就是拿到消息就会立即发送数据，但实际可能因线程调度略有延迟。
 
@@ -141,5 +141,146 @@ func main() {
 }
 ```
 
+至于序列化器，就是把我们的消息转换成能够在kafka中进行传输的字节流，具体的逻辑在这里：
 
+```go
+		msg := &sarama.ProducerMessage{
+			Topic: topic,
+			Value: sarama.StringEncoder(fmt.Sprintf("Hello Kafka!! My id is %d", i)),
+			Key:   sarama.StringEncoder(fmt.Sprintf("key-%d", i)),
+		}
+```
+
+这里将我们的消息转换成kafka能够识别的数据，然后将其发送。
+
+**生产者如何提高吞吐量？**
+
+我们之前提过，kafka默认的`linger.ms`设置的是0，也就是收到数据立刻发送，但是，这样虽然能实时发送信息，但是这种模式就像一个大货车一次拉一小点东西，吞吐量肯定是不够的，所以我们可以对`batch.size`和`linger.ms`这两个参数进行调整来提高吞吐量，同时也可以进行压缩，来节省内存，从而提高吞吐量，而在go-Sarama客户端，对应producer的config可以这样调整：
+
+```go
+	config.Producer.Flush.Bytes = 16 * 1024
+	config.Producer.Flush.Frequency = time.Millisecond * 50
+	config.Producer.CompressionLevel = int(sarama.CompressionSnappy)
+```
+
+虽然java中可以设置缓冲区的大小，但是Sarama貌似没有这个选项。
+
+#### **数据**
+
+我们的数据应答类型在Sarama中是这样设置的(此处以-1为例)：
+
+```go
+config.Producer.RequiredAcks = sarama.WaitForAll
+```
+
+而重试类型默认为int最大值，我们可以通过下面的方式来设置：
+
+```go
+config.Producer.Retry.Max = 10
+```
+
+- **可靠性**：
+
+  之前提到过，我们的应答ACK有三种模式：`0`，不需要等数据落盘，直接应答，`1`，当leader的数据落盘之后，不需要等待follower同步即可应答，`-1`则是需要等待leader和follower都已经同步完毕，才进行应答。
+
+  - **0**：当消息发送出去，不等待kafka的相应，就认为信息已经完成，此时如果leader挂掉或者在数据落盘过程中挂掉了，那么相对应的数据也没有了，此时就一定会导致数据丢失，是最不可靠的。
+
+  - **1**：此时leader已经将消息写入到本地，在此之前，如果leader挂掉了，发送方也会认为超时，然后重新发送，所以此时比上一种更加可靠，但是如果在同步的时候，leader挂掉了，也会造成数据丢失，允许丢失个别数据，如传输普通日志。
+
+  - **-1**：此时会等待leader和所有的follower同步，才会返回ack信息，但是，缺点是如果一个follower挂掉了，就会导致整个partition重试，适用于对可靠性要求高地场景。
+
+    **怎么解决这个问题呢？**
+
+    事实上，Leader维护了一个动态的`in-sync replica set`表示和leader维持同步的follower集合，如果follower长时间不向leader申请通信或者同步请求，就会被leader踢出ISR，超时时间由`replica.lag.time.max.ms`设定，默认30s，这样就能一定程度地解决这个问题，可以类比为心跳机制。
+
+    但是如果所有的follower都挂掉了，事实上，也就和**1**模式没有区别了，所以我们数据完全可靠的条件是：ack级别-1，分区副本大于等于2，ISR最小应答副本大于等于2。
+
+    但与此同时还有一个问题就是**数据重复问题**，就是当所有节点都已经同步完成，但是恰好在应答的那一刻挂掉了，然后没有受到消息，生产者又发送一次数据，此时会发送到新的leader上，造成数据重复。
+    
+
+
+- **数据重复问题**
+
+  上面提到了，我们的**-1**模式可以保证数据不丢失，但是不保证不重复，而**1**模式可以保证数据不重复，而不能保证数据不丢失。而Kafka通过引入了**幂等性**和**事务**这两个特性。
+
+  - **幂等性**：通过PID，Partition，SeqNumber来判断当前的消息是否重复，PID就是生产者的ID，而Partition代表分区号，SeqNumber单调递增，所以幂等性只能保证单分区单会话内不重复，如果遇见一个这些部分重复的，就会自动忽视这些消息，幂等性默认是开启的，但是仅仅只能在一个会话中保证，如果传输过程中挂掉，又重新启动了，怎么办？
+
+    ```go
+    config.Producer.Idempotent = true
+    ```
+
+  - **事务**：开启事务，必须要开启幂等性，由于需要保持不同会话，能够保持状态，所以我们还需要一个事务id，在发送信息时，需要先标注好事务的id，以保证不同会话的同一个消息的一致性。为了保持事务的状态，Kafka中还存在一个特殊的Topic，这个Topic中默认50个分区，将所有的事务保存到磁盘中，通过计算事务id的哈希值，我们可以找到对应的事务，并且由对应的**事务协调器**负责这个事务(一一对应)，这样即便客户端挂掉，重启之后也能继续处理未完成的事务，或者回滚事务，保证数据一致性。
+
+    事务底层依赖于幂等性，即便如此，当producer重启后，即便PID不同，Kafka也能根据事务ID来识别消息是否相同。除此之外，Sarama客户端使用事务的流程如下：
+
+    ```go
+    func main() {
+    	defer func() {
+    		if err := recover(); err != nil {
+    			color.Red("Error: %v", err)
+    		}
+    	}()
+    	brokers := []string{"localhost:29092", "localhost:29093", "localhost:29094"}
+    	topic := "cluster_test_topic"
+    
+    	config := sarama.NewConfig()
+    	config.Producer.Return.Successes = true
+    	config.Producer.RequiredAcks = sarama.WaitForAll
+    	config.Producer.Retry.Max = 10
+    	config.Producer.Partitioner = sarama.NewRoundRobinPartitioner
+    	config.Producer.Idempotent = true
+    	config.Net.MaxOpenRequests = 1
+    	config.Producer.Transaction.ID = "my-transaction-id"
+    	producer, err := sarama.NewAsyncProducer(brokers, config)
+    	if err != nil {
+    		log.Fatalln("Failed to start Sarama producer:", err)
+    	}
+    	defer producer.Close()
+    
+    	go func() {
+    		for range producer.Successes() {
+    			color.Green("Message delivered successfully")
+    		}
+    	}()
+    	go func() {
+    		for err := range producer.Errors() {
+    			panic(err)
+    		}
+    	}()
+    
+    	producer.BeginTxn()
+    	for i := 0; i < 100000; i++ {
+    		msg := &sarama.ProducerMessage{
+    			Topic: topic,
+    			Value: sarama.StringEncoder("Hello kafka World!"),
+    		}
+    		producer.Input() <- msg
+    	}
+    	producer.CommitTxn()
+    }
+    ```
+
+    尽管如此，但是我发现不管同步还是异步的事务，他们最终提交的数字貌似都是有点问题啊，每次都会多出十二条数据，玄学。
+
+- 数据有序：在单个分区里面，数据是有序的，但是如果消费多个分区的数据，则无法保证有序。
+
+- 数据乱序：之前提过，broker最多能够缓存五个请求，比如，当第三个请求失败，但是第四个请求成功了，此时就会造成乱序，有一种解决方案是将`max.in,flight.request.per.connection`设置为1，表示最多只能缓存一个请求，但是效率低下，但是如果启动幂等性的话，这个值就可以设置小于等于5，这就可以保证最近五个请求不乱序了，因为我们知道幂等性有一个参数是序号的，所以能够解决乱序的问题。
+
+#### **Broker**
+
+zookeeper存储的kafka相关信息：
+
+1. 记录有哪些服务器。
+2. 记录每一个主题的leader以及ISR。
+3. 辅助leader选举的controller。
+
+在每个kafka实例启动后，都会向zookeeper注册broker，随后开始选择controller，按照先来后到的原则，谁先进行注册，哪个broker就会被选举为controller。
+
+**Controller是什么？**controller是一个特殊的broker，一个集群中只有一个controller，由zookeeper辅助选举，如果当前controller宕机，kafka通过zookeeper监控controller的状态，此时，zookeeper会重新辅助选举新的controller。
+
+同时controller负责监听brokers的节点变化，负责每个分区partition的leader的选举，每次某个broker宕机或者加入时，都会进行重新选举，在选举一个新的leader之后，Controller就会将这些信息上传到zookeeper，此时，还会将这些信息同步给其他节点，以便于controller挂掉之后，其他节点可以随时进行选举。
+
+他还负责维护分区副本的管理，确保同步机制正常运行，维护kafka元数据，包括主题分区副本等信息，也负责处理topic和partition的创建删除和修改，同时，由于Controller仅仅负责管理，所以他的变更并不会影响到集群的正常运行，但是频繁的变更会影响kafka的性能。
+
+在我们的生产者向其中发送信息的时候，follower会同步leader的信息，底层采用的是log的方式存储这些信息，log的底层说segment(以1个G为单位)，为了实现快速查找，里面还有index索引的概念，利用索引来进行检索
 
