@@ -44,3 +44,41 @@ func canFinish(numCourses int, prerequisites [][]int) bool {
 }
 ```
 
+**二刷**
+
+想不到这次也用的广搜，感觉这道题用广搜比较简单。
+
+```go
+func canFinish(numCourses int, prerequisites [][]int) bool {
+    in := make([]int, numCourses)
+    detail := make([][]int, numCourses)
+    n := len(prerequisites)
+    ans := make([]int, 0)
+    for i := 0; i < n; i ++ {
+        in[prerequisites[i][0]] ++
+        detail[prerequisites[i][1]] = append(detail[prerequisites[i][1]], prerequisites[i][0])
+    }
+    q := make([]int, 0)
+    for i := 0; i < numCourses; i ++ {
+        if in[i] == 0 {
+            q = append(q, i)
+        }
+    }
+
+    for len(q) > 0 {
+        cur := q[0]
+        q = q[1:]
+        ans = append(ans, cur)
+        for _, i := range detail[cur] {
+            in[i]--
+            if in[i] == 0 {
+                q = append(q, i)
+            }
+        } 
+    }
+    return len(ans) == numCourses
+}
+```
+
+
+
