@@ -6,8 +6,8 @@
 
 1. topic表示一个类型/业务的数据的组
 2. 为方便扩展，提高吞吐率，一个topic分为多个partition。
-3. 配合分区的设计，提出消费者组的概念，每个消费者并行消费，同时，一个分区的数据，只能由一个消费者组的一个消费者来消费。
-4. 为提高可用性，每个partition都会有若干个副本，分为leader(当前正在执行的partition)和follower(备用的partition)，当leader挂掉是，被选中的follower就会成为新的leader，跟redis的集群中的主从比较类似。
+3. 配合分区的设计，提出消费者组的概念，每个消费者并行消费，同时，一个分区的数据，只能由一个消费者组的一个消费者来消费，除此之外，消费者和消费者相互独立，一个消费者消费之后，另一个消费者也可以消费这部分数据，在同一个消费者组里面，每个成员会被分配给不同的分区进行消费，在分区或者消费者变化的时候，也会对成员进行动态分配这些分区。
+4. 为提高可用性，每个partition都会有若干个副本，分为leader(当前正在执行的partition)和follower(备用的partition)，当leader挂掉时，被选中的follower就会成为新的leader，跟redis的集群中的主从比较类似。
 5. kafka的部分数据存储在zookeeper中，记录了正在运行的节点以及每个分区的leader选举等信息，值得一提的是，在kafka2.8.0之后，kafka就可以不依赖于zookeeper，独立进行运行了。
 
 如果通过客户端自动创建的话，partition默认只有一个，而我们可以在命令行输入`kafka-topics.sh --topic create-test --bootstrap-server kafka-1:9092 --partitions 11 --create`来创建一个有11个分区的topic，而如果是想要更新已有的topic的partition大小，应该将`--create`修改为`--alter`，如果是在docker环境中，也可以在进入容器之后输入`kafka-topics.sh`来查看命令的参数。其他的比如`--describe`用于查看topic的详细信息，`--list`查看所有主题。
@@ -24,7 +24,7 @@
 
 分区器会将消息的数据进行分区，而对应的消息会被发到`RecordAccumulator`，此时还没有将数据发送，当数据积累到batch.size(默认16k)之后，Sender才会发送数据，当然，如果数据量比较少，滞留的时间超过`linger.ms`设定的时间，就会发送消息，但是默认`linger.ms`是0ms，也就是拿到消息就会立即发送数据，但实际可能因线程调度略有延迟。
 
-当通过Sender发送数据时，会为每个Broker维护独立的请求队列。Kafka通过`max.in.flight.requests.per.connection`参数(默认5)控制每个Broker连接允许的最大未确认请求数。当某个Broker的`in-flight`请求数达到该限制时，针对该Broker的发送将暂停，直到收到对应的请求确认，之后才能继续发送新的请求。这个机制可以防止单个Broker堆积过多未确认请求，同时保证全局吞吐量，当然，如果等待的时间超过了`request.timeout.ms`(默认30s)，生产者则会认为请求失败，随后进行重试，当然应答有三个级别，0代表无需等待数据落盘就可以应答，1代表leader收到数据就可以应答，-1代表leader和follower全都同步完毕之后，才可以应答。.
+当通过Sender发送数据时，会为每个Broker维护独立的请求队列。Kafka通过`max.in.flight.requests.per.connection`参数(默认5)控制每个Broker连接允许的最大未确认请求数。当某个Broker的`in-flight`请求数达到该限制时，针对该Broker的发送将暂停，直到收到对应的请求确认，之后才能继续发送新的请求。这个机制可以防止单个Broker堆积过多未确认请求，同时保证全局吞吐量，当然，如果等待的时间超过了`request.timeout.ms`(默认30s)，生产者则会认为请求失败，随后进行重试，当然应答有三个级别，0代表无需等待数据落盘就可以应答，1代表leader收到数据就可以应答，-1代表leader和follower全都同步完毕之后，才可以应答，另外，在底层链路中，我们发送请求会通过调用`selector`将消息发送给kafka集群。
 
 #### **Go中的Kafka**
 
@@ -282,5 +282,106 @@ zookeeper存储的kafka相关信息：
 
 他还负责维护分区副本的管理，确保同步机制正常运行，维护kafka元数据，包括主题分区副本等信息，也负责处理topic和partition的创建删除和修改，同时，由于Controller仅仅负责管理，所以他的变更并不会影响到集群的正常运行，但是频繁的变更会影响kafka的性能。
 
-在我们的生产者向其中发送信息的时候，follower会同步leader的信息，底层采用的是log的方式存储这些信息，log的底层说segment(以1个G为单位)，为了实现快速查找，里面还有index索引的概念，利用索引来进行检索
+在我们的生产者向其中发送信息的时候，follower会同步leader的信息，底层采用的是log的方式存储这些信息，log的底层说segment(以1个G为单位)，为了实现快速查找，里面还有index索引的概念，利用索引来进行检索。
+
+**节点的服役与退役**，在我们的节点服役和退役的时候，partition并不会自动的进行调整，而是需要我们手动进行负载均衡，具体步骤如下
+
+1. 首先需要在容器内创建一个`topics.json`文件，输入以下内容，但是通常容器内置没有文本编辑器，这个时候通过echo命令写入就可以了。
+
+   ```json
+   {
+     "topics": [
+       {"topic": "cluster_test_topic"} 
+     ],
+     "version": 1
+   }
+   ```
+
+2. 随后执行`kafka-reassign-partitions.sh --bootstrap-server kafka-1:9092 --topics-to-move-json-file topics.json --broker-list "1,2,3" --generate`，相关参数可能需要根据实际情况修改，然后终端就会输出，当然，这里的kafka仅仅是提供了一种分配方法，实际上是可以自定义的。
+
+   ```json
+   {
+     "version": 1,
+     "partitions": [
+       {"topic": "cluster_test_topic", "partition": 0, "replicas": [1], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 1, "replicas": [2], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 2, "replicas": [3], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 3, "replicas": [1], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 4, "replicas": [2], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 5, "replicas": [3], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 6, "replicas": [1], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 7, "replicas": [2], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 8, "replicas": [3], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 9, "replicas": [1], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 10, "replicas": [2], "log_dirs": ["any"]},
+       {"topic": "cluster_test_topic", "partition": 11, "replicas": [3], "log_dirs": ["any"]}
+     ]
+   }
+   ```
+
+   形如这样的信息，将其echo到`reassign.json`中即可。
+
+3. 随后执行`kafka-reassign-partitions.sh --bootstrap-server kafka-1:9092 --reassignment-json-file reassign.json --execute`命令执行分配。
+
+4. 最后`kafka-reassign-partitions.sh --bootstrap-server kafka-1:9092 --reassignment-json-file reassign.json --verify`查看，如果所有分区都已经被正确分配，那么就算完成了！
+
+   这里如果是新增节点的话，肯定需要在一开始就新增节点，但是如果是退役节点的话，一般是在分配完成之后进行退役。
+
+**除此之外，还需要提到副本的问题**，我们第一次手动分配分区的时候，如果没有执行副本数量，那么就不会分配副本！
+
+所以我们需要在创建之初就指定副本数量`kafka-topics.sh --bootstrap-server kafka-1:9092 --create --topic cluster_test_topic --partitions 12 --replication-factor 3`,当然，如果在创建的时候忘记了，也没关系，步骤和重新分配分区的流程是一样的，区别就是在第二步的时候，我们可以将kafka给定的json自定义；
+
+```json
+{
+    "version": 1,
+    "partitions": [
+        {"topic": "cluster_test_topic", "partition": 0, "replicas": [1, 2, 3], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 1, "replicas": [2, 3, 1], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 2, "replicas": [3, 1, 2], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 3, "replicas": [1, 2, 3], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 4, "replicas": [2, 3, 1], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 5, "replicas": [3, 1, 2], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 6, "replicas": [1, 2, 3], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 7, "replicas": [2, 3, 1], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 8, "replicas": [3, 1, 2], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 9, "replicas": [1, 2, 3], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 10, "replicas": [2, 3, 1], "log_dirs": ["any", "any", "any"]},
+        {"topic": "cluster_test_topic", "partition": 11, "replicas": [3, 1, 2], "log_dirs": ["any", "any", "any"]}
+    ]
+}
+```
+
+将replica的参数进行修改，这样就可以正确的分配副本了！然后execute，就完成了。
+
+既然提到了副本，我们还需要引入一下leader选举的一些知识，一般来说，我们手动通过命令行分配副本或者partition，会默认采取负载均衡的策略，但是如果是在一些节点宕掉的时候，然后进行选举，就会采取抢占式的选举leader，这就可能会导致某一个broker负载过大，broker集群的负载不均衡，而我们可以通过重新执行replica的再分配或者定期执行`kafka-leader-election.sh --bootstrap-server kafka-1:9092 --election-type PREFERRED --all-topic-partitions`这个命令来实现负载均衡，同时这个命令也可以用于重启后恢复原本的分区状态；另外，还有几个参数可以解决这个问题：`auto.leader.rebalance.enable`默认为true，自动平衡，`leader.imbalance.per.broker.percentage`表示每个broker允许的不平衡的leader的比率，超出就会触发平衡机制，`leader.imbalance.check.interval.seconds`检查leader是否负载平衡的间隔时间。
+
+另外，我们的生产者只会将数据发送给Leader，然后follower会与leader发送同步请求，如果长时间follower没有向leader通信或者发送同步请求，就会被踢出ISR，这个时间阈值参数是`replica.lag.time.max.ms`，而OSR表示同步过程中延迟过多的副本，replicas表示所有存储副本的节点，而ISR表示所有保持同步的节点，也就是说，如果机器挂掉，ISR会将这个节点移除，但是replicas不会！
+
+**follower故障**：在leader和follower同步的时候，LEO是每个副本的最后一个offset + 1，而HW则是所有副本中最小的LEO，也就是说，所有的Follower的LEO虽然不一定一样，但是HW是一样的，HW也就是(High WaterMark)高水位线，当其中一个follower挂掉之后，会被踢出ISR，之后，其他的follower和leader会继续同步，维护一个HW，当之后，follower恢复了，此时会舍去挂掉的时候记录的HW之后的数据，然后重新开始同步，直到达到HW，就可以再次加入ISR。
+
+**leader故障**：leader挂掉之后，会重新选拔一个新的leader，同时，leader和follower的数据，超过HW的部分都会被舍去，保证数据一致性，但是无法保证数据不丢失或者不重复。
+
+**文件存储**
+
+- Topic是逻辑上的概念，而Partition是物理上的概念，每个partition都对应一个log文件，其中存储的是生产者生产的数据，但是为了防止log文件过大，导致搜索效率低，每个partition的log又被分成了多个segment，单位为1个G，每个segment包括.index(索引),.log(存储数据)，.timeindex文件(时间戳索引，辅助定期删除)，值得注意的是，index并不是为每一条数据都设置了索引，而是使用了**稀疏索引**，默认每写入4kb数据，会往index文件写入一条索引，可以通过`log.index.interval.bytes`修改，同时index中保存的offset为相对的offset，这样既可以执行查找的功能，也可以节省内存，防止offset过大。
+- kafka中的日志默认保存时间是七天，七天一到，就可以通过`delete`或者`compact`策略进行日志清理，默认是基于时间的**删除delete**策略，以segment所有记录中最大时间戳作为该文件的时间戳，以此为基准执行删除。另一种是基于大小的删除策略，超过设置的所有日志的总大小，删除最早的segment，类似LRU机制；而**压缩日志compact**策略则是将所有的Key相同的数据，只保留最新的Key，这样来压缩，类似redis的AOF重写。
+- Kafka能做到高效的读写数据，原因如下：
+  1. 本身为分布式集群，可以采取分区技术，并行度高。
+  2. 读数据采取**稀疏索引**，可以快速定位要消费的数据。
+  3. 顺序写磁盘，生产者生产数据以追加写的形式写入到log文件，相较于随机写，顺序写之所以快。是因为省去了大量磁头寻址的时间。
+  4. Kafka采取了页缓存和零拷贝技术，**页缓存**就是生产者将数据发送时，先将数据写道内存页中，然后由操作系统内核决定何时刷新到磁盘，这样就不会在写入的时候触发磁盘I/O，同时，如果consumer读取数据，会先从页缓存中找，找不到再去磁盘中寻找，就减少了频繁的磁盘I/O，提高了读写效率；**零拷贝**，Kafka直接调用`sendfile()`让数据从页缓存直接发送到TCP socket，而不需要走用户态将数据交给应用层，再通过向下传输将数据发送给TCP socket，简单来说，零拷贝允许数据直接在内核空间传递，而减少了用户态和内核态数据的来回拷贝和切换，提高了读写效率。
+
+### 1.3 **消费者**
+
+#### **Kafka的消费方式是什么？**
+
+一般来说，消息队列有两种消费方式，pull拉模式和push推模式，而kafka采取的是拉模式
+
+**拉取**就是consumer主动从broker中拉取数据，这样，每个consumer可以根据自己的处理能力去拉去相应数据量大小的数据，保证了每个consumer的消费能力被充分利用
+
+而**推模式**，为什么kafka不采取这种形式？因为推模式中，消息的发送速率由broker决定，很难适应所有消费者的消费速率，比如如果推送速度过低，由于消费者消费能力参差不齐，就会导致部分consumer的能力没法充分利用，但是如果推送速度稍微大一点，一些consumer由来不及处理消息。
+
+但是即便如此，**拉模式**依旧有自己的缺点，当kafka没有数据的时候，消费者可能会陷入循环，一直返回空数据。
+
+#### **工作流程**
 
