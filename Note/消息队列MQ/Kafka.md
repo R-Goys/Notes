@@ -163,7 +163,7 @@ func main() {
 	config.Producer.CompressionLevel = int(sarama.CompressionSnappy)
 ```
 
-虽然java中可以设置缓冲区的大小，但是Sarama貌似没有这个选项。
+除此之外，我们还可以通过`config.ChannelBufferSize`来调整生产者缓冲区的大小，缓冲区的设置会影响内存占用和吞吐量，所以需要权衡利弊。
 
 #### **数据**
 
@@ -513,4 +513,50 @@ kafka中自带的分区策略有Range，Roundrobin，Sticky，CooperativeSticky�
   2. 如果是数据处理不及时，可以提高每批次拉取消息的数量，批次拉取的数量过少，也会导致数据积压，同时我们在提高每批次拉取消息的数量的时候，也需要提高每批次拉取的数据大小。
 
 ### 1.4 **调优**
+
+#### **生产者调优**
+
+- **linger.ms**可以调整每批次最长发送消息的间隔
+
+- **batch.size**可以调整每批次发送的消息的最大值
+
+- **config.ChannelBufferSize**缓冲区的总大小，较大的缓冲区可以提高吞吐率，但是会增加内存占用，如果缓冲区较小，可能会导致生产者阻塞，从而吞吐量降低。
+
+- **幂等性**：开启幂等性可以使得在broker中缓存的五个请求不会乱序，或者说将broker缓存的最大数据量设置成1(效率低下)。
+
+- **retry**：重试的次数，默认是int的最大值，如果不希望一直重试，可以自己手动调小。
+
+- **retry间隔时间**：默认100ms。
+
+- **回应方式**：之前提过有0，1，-1三者等待方式，0就是直接发送出去就不管了，1则是消息在leader上面落盘之后返回消息，-1是最可靠的，也就是waitforall，等待leader和follower全部同步完成才会返回ack，当然这里也有关于exactly once的笔记，上面有详细的介绍。
+
+- **压缩方式**：默认为none，一般会配置成snappy这种比较轻量的压缩方式，用于提高吞吐量。
+
+#### **Broker调优**
+
+- **replica.lag.time.max.ms**：表示ISR中Follower未向Leader同步或通信被踢出的时间。
+- **auto.leader.rebalance.enable**：Leader Partition的自动平衡，默认关闭，除非节点经常挂，否则不建议打开，相关的还有超过一定百分比触发自动平衡以及定期检查是否平衡的参数。
+- **segment大小**：默认1G.
+- **log.index.interval.bytes**：默认4kb，每写入4kb就会添加一个索引。
+- **数据保存时间**：默认七天，相关的还有检查是否超时的时间间隔
+- **删除策略**：默认delete，如果为compact，则会采取压缩策略。
+
+...还有一堆读写拉传输的线程数，以及强制页缓存刷写到磁盘的条数以及刷写数据到磁盘的时间间隔。
+
+另外一些，就是扩展分区数，调整分区副本的存储，手动负载均衡。还有自动创建主题，虽然在测试环境中可以随便开启，但是在生产环境一般是关闭的，防止出现未知的乱七八糟的topic，并且自动创建的主题，partition一般都是默认值，不如手动创建。
+
+#### **消费者调优**
+
+在一个消费者组中，首先会通过哈希计算，计算出自己的哈希值，然后对应`__consumer_offsets`这个特殊分区上面的特殊的partition，然后将管理这个partition的broker设置为这个消费者组的coordinator，辅助这个消费者组的初始化和分区的分配，然后每个消费者向这个coordinator注册自己的信息，表示要加入这个group，然后coordinator会选择一个消费者作为leader，然后将要消费的topic信息发给leader，由leader去执行分区分配，将分区分配的方案发给coordinator，随后coordinator下发给这个消费者组的所有consumer，在这个过程中，每个消费者都会保持心跳，超过这个时间，就会踢出消费者组，并触发再分配，或者消费时间过长，也会触发再分配。
+
+- **Fetch.min.bytes**：每批次的最小抓取数据大小，默认一字节。
+- **fetch.max.wait.ms**：一批数据的最长的等待时间，超出这个之间就会拉取数据。
+- **fetch.max.bytes**：每批次的最大抓取大小，
+- **max.poll.recodes**：每次拉取数据的最大跳数。
+- **auto.commit**：自动提交，如果追求exactly once，默认开启
+- **session.time.out**：消费者和coordinator的超时时间。
+
+**数据精准一次如何实现？**
+
+生产者讲ack生成-1，同时开启幂等性和事务，broker角度分区副本数量大于等于二，ISR应答的最小副本数量大于等于2，消费者角度，开启事务，并且手动提交offset，并且输出的目的地必须支持事务，如MySQL。
 
