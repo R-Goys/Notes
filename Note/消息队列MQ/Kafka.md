@@ -419,6 +419,7 @@ func (h *ConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, cl
 		fmt.Printf("Consumed message: %s\n", string(message.Value))
 		// 手动提交偏移量
 		sess.MarkMessage(message, "")
+       sess.Commit()
 	}
 	return nil
 }
@@ -496,4 +497,6 @@ kafka中自带的分区策略有Range，Roundrobin，Sticky，CooperativeSticky�
 
   虽然很方便，但是缺点很明显，如果在还没有提交的时候，但是此时消费者挂了，就会导致重复消费！因此，我们的kafka也提供了手动提交的功能。
 
-- **手动提交**：手动提交又分为同步和异步
+- **手动提交**：手动提交又分为同步和异步，通过手动提交，我们能够更好地控制offset的提交，通常我们是采取异步提交的方式来手动提交offset，但是Sarama库似乎并没有直接封装异步提交的API，需要我们去手动实现，而kafka-go这个包貌似是支持的。
+
+- **指定Offset**：在Sarama中，可以通过设置`config.Consumer.Offsets.Initial`这个字段值，来设置我们此次消费的起始位置，默认是从最新的offset进行消费的。当然，此处只能指定分区和指定offset才能够使用，既然是指定offset，当然也可以通过**执行时间戳**来进行查找，在Sarama中，我们需要通过`sarama.NewClient(brokers, config)`创建一个client，然后调用`client.GetOffset(topic, partition, targetTime)`来获取当前时间戳的offset，随后执行执行消费操作,当然你也可以通过遍历topic的所有分区来实现在某一时间段之后的所有消息的消费。
