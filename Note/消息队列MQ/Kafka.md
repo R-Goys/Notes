@@ -191,7 +191,7 @@ config.Producer.Retry.Max = 10
 
     **怎么解决这个问题呢？**
 
-    事实上，Leader维护了一个动态的`in-sync replica set`表示和leader维持同步的follower集合，如果follower长时间不向leader申请通信或者同步请求，就会被leader踢出ISR，超时时间由`replica.lag.time.max.ms`设定，默认30s，这样就能一定程度地解决这个问题，可以类比为心跳机制。
+    **至少一次(At-Least-Once)**，事实上，Leader维护了一个动态的`in-sync replica set`表示和leader维持同步的follower集合，如果follower长时间不向leader申请通信或者同步请求，就会被leader踢出ISR，超时时间由`replica.lag.time.max.ms`设定，默认30s，这样就能一定程度地解决这个问题，可以类比为心跳机制。
 
     但是如果所有的follower都挂掉了，事实上，也就和**1**模式没有区别了，所以我们数据完全可靠的条件是：ack级别-1，分区副本大于等于2，ISR最小应答副本大于等于2。
 
@@ -201,7 +201,7 @@ config.Producer.Retry.Max = 10
 
 - **数据重复问题**
 
-  上面提到了，我们的**-1**模式可以保证数据不丢失，但是不保证不重复，而**1**模式可以保证数据不重复，而不能保证数据不丢失。而Kafka通过引入了**幂等性**和**事务**这两个特性。
+  **精确一次(Exactly-Once)**上面提到了，我们的**-1**模式可以保证数据不丢失，但是不保证不重复，而**1**模式可以保证数据不重复，而不能保证数据不丢失。而Kafka通过引入了**幂等性**和**事务**这两个特性。
 
   - **幂等性**：通过PID，Partition，SeqNumber来判断当前的消息是否重复，PID就是生产者的ID，而Partition代表分区号，SeqNumber单调递增，所以幂等性只能保证单分区单会话内不重复，如果遇见一个这些部分重复的，就会自动忽视这些消息，幂等性默认是开启的，但是仅仅只能在一个会话中保证，如果传输过程中挂掉，又重新启动了，怎么办？
 
@@ -259,8 +259,6 @@ config.Producer.Retry.Max = 10
     	producer.CommitTxn()
     }
     ```
-
-    尽管如此，但是我发现不管同步还是异步的事务，他们最终提交的数字貌似都是有点问题啊，每次都会多出十二条数据，玄学。
 
 - 数据有序：在单个分区里面，数据是有序的，但是如果消费多个分区的数据，则无法保证有序。
 
@@ -385,3 +383,117 @@ zookeeper存储的kafka相关信息：
 
 #### **工作流程**
 
+每个独立的消费者都可以去消费数据，并且可以重复消费其他消费者消费的数据，**但是**，如果这两个消费者位列同一个消费者组中，则这个消费者组会被视为一个"消费者"，通俗来将，就是消费者组只能对同一份数据消费一次，也就是说，同一份数据不能被消费者组中的消费者消费两次，并且，每个消费者都会被分配一个partition，让他们去特定的partition去消费数据，同一个消费者组中的两个消费者不能同时消费一个partition。
+
+另外，为防止kafka节点或者消费者挂掉后，消费者不知道上一次消费某个partition消费哪里了，最新版的kafka中还维护了一个`__consumer_offsets`来保存消费者消费到的数据的偏移量，而老版本的kafka将这个信息维护在zookeeper中，而维护在kafka主题中，方便管理维护，也减少了通信的时间消耗。
+
+形成一个消费者组的条件是：消费者的GroupID相同，当然如果partition的数量超过了消费者组中的消费者的数量，被空出来的消费者不会参与消费。
+
+**消费者是如何实现分区的分配的？**首先有一个coordinator，用来辅助消费者的初始化和分区的分配。最开始会从`__consumer_offsets`中，通过消费者组的id进行哈希计算，选择一个partition来存储消费者的offset数据，而负责管理这个partition的broker，也就成为了这个消费者组的coordinator，而选举完成之后，所有的consumer都会向这个coordinator发送JoinGroup请求，而coordinator又会从这些consumer中选举一个作为消费者组的leader，此后，coordinator会把要消费的topic情况发送给leader消费者，随后leader会制定一个消费方案，这里就涉及到一个**分区分配的策略**，随后就将分配的方案发送给每个consumer，然后进行消费，而且每个消费者都会定期和coordinator保持心跳机制，一旦超时，就会被移除。并且会触发**再平衡**(重新分配消费任务)。(当某个消费者消费过慢，也会触发)
+
+**消费者组是怎么消费的？**
+
+首先我们需要创建一个用于访问kafka集群的消费者客户端，这个客户端当然也有config配置，和生产者客户端类似，有每批次的拉取大小，拉取数据的超时时间，每批次最大拉取大小的信息，当拉取消息时，在kafka端会返回数据并放入一个拉取队列(缓冲区)中，随后经过拦截器和反序列化器，最终将消息返回到客户端，当然，处理完消息后，还需要提交offset偏移量(分为手动和自动)，告诉kafka集群当前消息已经被该消费者组消费。
+
+下面是go-Sarama消费者客户端代码：
+
+```go
+// ConsumerGroupHandler 实现了 ConsumerGroupHandler 接口
+type ConsumerGroupHandler struct{}
+
+// Cleanup implements sarama.ConsumerGroupHandler.
+func (h *ConsumerGroupHandler) Cleanup(sarama.ConsumerGroupSession) error {
+	color.Green("消费者关闭！\n")
+	return nil
+}
+
+// Setup implements sarama.ConsumerGroupHandler.
+func (h *ConsumerGroupHandler) Setup(sarama.ConsumerGroupSession) error {
+	color.Green("消费者启动！\n")
+	return nil
+}
+
+// 消费消息并打印
+func (h *ConsumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for message := range claim.Messages() {
+		fmt.Printf("Consumed message: %s\n", string(message.Value))
+		// 手动提交偏移量
+		sess.MarkMessage(message, "")
+	}
+	return nil
+}
+
+var _ sarama.ConsumerGroupHandler = (*ConsumerGroupHandler)(nil)
+
+func main() {
+	defer func() {
+		if err := recover(); err != nil {
+			color.Red("Error: %v", err)
+		}
+	}()
+	brokers := []string{"localhost:29092", "localhost:29093", "localhost:29094"}
+	topic := "cluster_test_topic"
+
+	config := sarama.NewConfig()
+	config.Consumer.Return.Errors = true
+    //保持偏移量是最新的位置
+	config.Consumer.Offsets.Initial = sarama.OffsetNewest
+	//初始化消费者组
+	ConsumerGroup, err := sarama.NewConsumerGroup(brokers, "my-group", config)
+	if err != nil {
+		panic(err)
+	}
+    //此处采取for循环是因为在kafka的rebalance之后，consume会返回错误导致无法继续消费
+    //所以此处需要采取循环。
+	go func() {
+		for {
+            //指定topic
+			err = ConsumerGroup.Consume(context.Background(), []string{topic}, &ConsumerGroupHandler{})
+			if err != nil {
+				color.Red("Error from consumer: %v", err)
+			}
+		}
+	}()
+	defer ConsumerGroup.Close()
+	select {}
+}
+```
+
+而如果想要消费特定分区，则不能采取consumerGroup的形式，而是单独使用Consumer，然后调用ConsumePartition，同样的，生产者也可以配置字段单独向一个partition发送信息。
+
+#### **分区策略**
+
+kafka中自带的分区策略有Range，Roundrobin，Sticky，CooperativeSticky，而Kafka可以同时使用多个分区分配策略，在Sarama客户但可以通过调整`config.Consumer.Group.Rebalance.Strategy`来修改采取的分区策略，默认是`Range+CooperativeSticky`
+
+- **Range**：范围分配策略，针对于**每个主题**对每个分区和每个消费者进行编号排序，然后用消费者去对应每一个partition，总体来说就是(四个分区，三个消费者)：
+
+  > Partition1 <-> Consumer1
+  >
+  > Partition2 <-> Consumer2
+  >
+  > Partition3 <-> Consumer3
+  >
+  > Partition4 <-> Consumer1
+
+  虽然只针对一个topic而言，编号较低的Consumer可能消耗不大，但是如果对于上百个topic而言，低位的Consumer就多承担上百个partition，容易造成数据倾斜！
+
+- **RoundRobin**：轮询分配策略，roundrobin是针对于所有的消费者订阅的topic而言，将所有的partition和consumer排序，然后按照range的轮询方法将partition分配给消费者。、
+
+  以上两种在Rebalance时，都会重新分配所有的分区。
+
+- **Sticky**：粘性分配策略，随机且均匀，初始分配时尽量负载均衡，但是在重分配时，会尽可能保留原有的分区分配，而仅仅调整部分的分区分配，这样可以减少分区迁移的开销，但是实现比较复杂。
+
+#### **offset**
+
+每个消费者组为了记录每个partition消费到了什么位置，都需要记录offset的位置，而这个offset在旧版本的kafka是存储在zookeeper里面的，在新版本的Kafka中，是存在`__Conustmer_offsets`的主题中的，里面有50个partition，而在这个topic中，是采取key-value的格式存储offset的值，key是groupid + topic +分区号，value对应的则是offset，同时，每隔一段时间，kafka内部还对这个topic进行compact压缩，这样能够保存最新的数据。
+
+- **自动保存**：kafka提供了自动提交offset的功能，以便于我们能够专注于自己的业务逻辑，配置参数为：`enable.auto.commit`以及`auto.commit.interval.ms`表示是否开启自动提交功能，自动提交offset的时间间隔，默认开启和5s，在Sarama客户端中，对应的字段为：
+
+  ```  go
+  config.Consumer.Offsets.AutoCommit.Enable
+  config.Consumer.Offsets.AutoCommit.Interval
+  ```
+
+  虽然很方便，但是缺点很明显，如果在还没有提交的时候，但是此时消费者挂了，就会导致重复消费！因此，我们的kafka也提供了手动提交的功能。
+
+- **手动提交**：手动提交又分为同步和异步
