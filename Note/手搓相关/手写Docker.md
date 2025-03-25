@@ -215,3 +215,111 @@ perfect！测试完成，docker完美的将我们设置的参数赋予了我们�
 
 #### (3) **再加点料，Go中新增Cgroup的限制**
 
+这里我调试了半天，发现stress甚至还会产生很多子进程，如果按照书上的来，很多都跑不通，无敌了，下面是能够正确跑通的代码：
+
+```go
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path"
+	"strings"
+	"syscall"
+
+	"github.com/fatih/color"
+)
+
+const CgroupPath = "/sys/fs/cgroup/"
+
+func GetAllChinldpids(pids []string) []string {
+	for i := 0; i < len(pids); i++ {
+		children, err := exec.Command("pgrep", "-P", pids[i]).Output()
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+				continue
+			}
+			color.Red("Error: %v", err)
+			os.Exit(14)
+		}
+		pids = append(pids, strings.Fields(string(children))...)
+	}
+	return pids
+}
+
+func main() {
+	if os.Args[0] == "/proc/self/exe" {
+		fmt.Println("pid:", os.Getpid())
+
+		cmd := exec.Command("sh", "-c", `stress --vm-bytes 2048m --vm-keep -m 1`)
+
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Println(err)
+			os.Exit(11)
+		}
+	}
+
+	cmd := exec.Command("/proc/self/exe")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+	}
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		fmt.Println(err)
+		os.Exit(13)
+	} else {
+		pids := GetAllChinldpids([]string{fmt.Sprintf("%d", cmd.Process.Pid)})
+
+		fmt.Println("child pid:", pids)
+
+		fmt.Println("pids:", pids)
+
+		os.Mkdir(path.Join(CgroupPath, "TestMemoryLimit"), 0755)
+
+		for _, pid := range pids {
+			os.WriteFile(path.Join(CgroupPath, "TestMemoryLimit", "cgroup.procs"), []byte(pid), 0644)
+		}
+
+		os.WriteFile(path.Join(CgroupPath, "TestMemoryLimit", "memory.max"), []byte("100m"), 0644)
+	}
+	cmd.Process.Wait()
+}
+```
+
+像这样，我们就能够手动启动一个进程，并且这个进程受到Cgroup的限制了！在bash中输入`go run main.go`，然后启动另一个终端，输入`top`。你会发现内存占用被限制了！
+
+#### (4) **Union File System**
+
+简单来说就是将其他文件系统合并到一个文件系统，被合并的文件叫做分支branch，用户在使用读取操作的时候，尽管底层是读取的同一个文件，但是实际上用户会认为他是在独享一个文件系统，而在用户真正对其进行写操作时，才会真正的开辟一个新的内存空间，来将被修改或者写入的数据(不是全部！)放入这段空间，这就叫**COW(写时复制)**，而在docker中也有类似的实现，所有的容器共享一个基础镜像，这一层叫做**镜像层**，而在用户修改容器数据的时候，就会将这部分数据写入到**可写层**，从而达到节省空间的目的。
+
+**AUFS**，他重写了早期的UnionFS，具有快速启动容器，存储性能高等优点，而docker早期正是采取的这一存储方式。
+
+**实践一下吧！**
+
+这里我选择alpine作为基础镜像，实际上用啥都行，这里就只需要在基础镜像的基础上，echo一段字符到文件里就行了。
+
+首先随便创建一个新的目录，创建dockerfile文件：
+
+```dockerfile
+FROM alpine:latest
+
+RUN echo "Ciallo World!" > newfile
+```
+
+随后，在这个目录下面输入`docker build -t changed-image .`的指令，然后就可以创建一个自己的镜像了.
+
+然后我们可以通过`docker history changed-image`来查看这个容器的历史记录
+
+![QQ_1742802906012](./assets/QQ_1742802906012.png)
+
+我们发现，我们的我们最上层的image layer仅仅使用了14B的空间，这也证明了AUFS是高效地在使用磁盘空间的。
+
