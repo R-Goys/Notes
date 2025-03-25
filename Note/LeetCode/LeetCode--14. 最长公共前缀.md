@@ -6,7 +6,7 @@
 
 ---
 
-## 正文
+## 正文	
 
 最开始还想用trie树做，但发现忘完了，于是直接暴力扫描：
 
@@ -18,6 +18,23 @@ func longestCommonPrefix(strs []string) string {
     for i := 0; i < len(strs[0]); i++ {
         for j := 1; j < len(strs); j++ {
             if i == len(strs[j]) || strs[j][i] != strs[0][i] {
+                return strs[0][:i]
+            }
+        }
+    }
+    return strs[0]
+}
+```
+
+二刷：
+
+写出来竟然一模一样.哈哈哈
+
+```go
+func longestCommonPrefix(strs []string) string {
+    for i := 0; i < len(strs[0]); i ++ {
+        for j := 0; j < len(strs); j ++ {
+            if len(strs[j]) == i || strs[j][i] != strs[0][i] {
                 return strs[0][:i]
             }
         }
