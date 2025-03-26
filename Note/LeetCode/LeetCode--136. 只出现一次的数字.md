@@ -14,3 +14,16 @@ func singleNumber(nums []int) int {
 }
 ```
 
+二刷复习
+
+```go
+func singleNumber(nums []int) int {
+    n := len(nums)
+    ans := 0
+    for i := 0; i < n; i ++ {
+        ans ^= nums[i]
+    }
+    return ans
+}
+```
+
