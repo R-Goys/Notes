@@ -299,7 +299,7 @@ func main() {
 
 #### (4) **Union File System**
 
-简单来说就是将其他文件系统合并到一个文件系统，被合并的文件叫做分支branch，用户在使用读取操作的时候，尽管底层是读取的同一个文件，但是实际上用户会认为他是在独享一个文件系统，而在用户真正对其进行写操作时，才会真正的开辟一个新的内存空间，来将被修改或者写入的数据(不是全部！)放入这段空间，这就叫**COW(写时复制)**，而在docker中也有类似的实现，所有的容器共享一个基础镜像，这一层叫做**镜像层**，而在用户修改容器数据的时候，就会将这部分数据写入到**可写层**，从而达到节省空间的目的。
+简单来说就是将其他文件系统合并到一个文件系统，被合并的文件叫做分支branch，用户在使用读取操作的时候，尽管底层是读取的同一个文件，但是实际上用户会认为他是在独享一个文件系统，而在用户真正对其进行写操作时，才会真正的开辟一个新的内存空间，来将被修改或者写入的数据(一整块地)放入这段空间，这就叫**COW(写时复制)**，而在docker中也有类似的实现，所有的容器共享一个基础镜像，这一层叫做**镜像层**，而在用户修改容器数据的时候，就会将这部分数据写入到**可写层**，从而达到节省空间的目的，当然，如果修改的数据与原镜像有管理，就会复制。
 
 **AUFS**，他重写了早期的UnionFS，具有快速启动容器，存储性能高等优点，而docker早期正是采取的这一存储方式。
 
@@ -321,5 +321,695 @@ RUN echo "Ciallo World!" > newfile
 
 ![QQ_1742802906012](./assets/QQ_1742802906012.png)
 
-我们发现，我们的我们最上层的image layer仅仅使用了14B的空间，这也证明了AUFS是高效地在使用磁盘空间的。
+我们发现，我们的我们最上层的image layer仅仅使用了14B的空间，而旧的层被复用了，并没有为其开辟新的空间，这也证明了AUFS是高效地在使用磁盘空间的。
+
+当我们创建一个容器的时候，docker会为这个容器创建一个`read only`的init层，存储环境相关信息，以及`read-write`层，执行所有的写操作。
+
+**说干就干，自己实现！**
+
+md，服了，我现在用的ubuntu不支持aufs，索性就用OverlayFS了。
+
+首先新建一个目录，创建`container-layer`以及`image-layer{1..4}`，还有`mnt`和`workdir`，此时，还需要向每个`image-layer{1..4}`创建一个文件`image-layer{1..4}.txt`，并且echo `I'm image-layer{1..4}`，这样就可以了。
+
+然后输入`sudo mount -t overlay overlay -o lowerdir=image-layer4:image-layer3:image-layer2:image-layer1,upperdir=container-layer,workdir=workdir mnt`将文件合并到mnt目录上。
+
+此时输入`tree`，如果发现workdir目录下有点奇怪，可以试试查看该目录中文件的权限，修改看看！
+
+尝试修改我们挂载目录下的文件，结果如下！(这里的image-layer的文件夹名称显示有问题)
+
+![QQ_1742807902244](./assets/QQ_1742807902244.png)
+
+我们发现，挂载目录下的被修改的文件确确实实以及被修改了，而被挂载的image-layer4目录下的文件保持原样，并且container-layer(写入层)也确确实实新建了一个文件，这当然是符合我们预期的结果，到这里，我们就完成了我们的一个OverlayFS文件系统了。
+
+到这里，写一个docker所需要的必备知识已经讲完了，开始吧！我们的构造容器之旅！
+
+---
+
+## 2. **容器，构建属于自己的小宇宙**
+
+在开始之前，我们还需要知道linux中的`/proc`，相信熟悉linux的人都知道，proc并不是一个真正的文件系统，而是直接由内核提供的，包含了系统运行时的信息，他只存在于内存当中，也就是说，我们通过他，可以很轻松的得到这些信息，就相当于是他以文件系统的形式为我们访问内核数据的操作提供接口，以下一些信息需要我们了解，是直接复制的书上的内容，懒得打了)
+
+>**/proc/N/cmdline**: 进程启动命令  
+>**/proc/N/cwd**: 链接到进程当前工作目录  
+>**/proc/N/environ**: 进程环境变量列表  
+>**/proc/N/exe**: 链接到进程的执行命令文件  
+>**/proc/N/fd**: 包含进程相关的所有文件描述符  
+>**/proc/N/maps**: 与进程相关的内存映射信息  
+>**/proc/N/mem**: 指代进程持有的内存，不可读  
+>**/proc/N/root**: 链接到进程的根目录  
+>**/proc/N/stat**: 进程的状态  
+>**/proc/N/statm**: 进程使用的内存状态  
+>**/proc/N/status**: 进程状态信息，比 stat/statm 更具可读性  
+>**/proc/self/**: 链接到当前正在运行的进程  
+
+我们接下来要实现的就是`docker run -ti /bin/sh`这个命令，通过这个命令我们可以进入到容器内部，并且通过命名空间实现资源隔离，通过Cgroups实现资源限制的功能。
+
+由于这里我使用的是Ubuntu24.02，所以Cgroup这些都跟《动手写docker》这本书上的不太一样，所以我把代码重写了一遍，此处我会按照我们输入命令的流程来将代码一步一步讲解，并不是一个包一个包地讲解，所以请注意。
+
+```go
+.
+├── cgroups
+│   ├── cgroup.go
+│   ├── def_limit.go
+│   └── utils.go
+├── cmd
+│   ├── cmd
+│   ├── main_command.go
+│   ├── main.go
+│   └── run.go
+├── container
+│   ├── container_process.go
+│   └── init.go
+├── example
+│   ├── example1
+│   │   ├── cgroup-test
+│   │   ├── main.go
+│   │   └── trace.log
+│   └── example2
+│       ├── lab
+│       │   └── aufs
+│       │       ├── container-layer
+│       │       │   └── image-layer4.txt
+│       │       ├── image-layer1
+│       │       │   └── image-layer1.txt
+│       │       ├── image-layer2
+│       │       │   └── image-layer2.txt
+│       │       ├── image-layer3
+│       │       │   └── image-layer3.txt
+│       │       ├── image-layer4
+│       │       │   └── image-layer4.txt
+│       │       ├── mnt
+│       │       └── workdir
+│       │           └── work
+│       ├── main.go
+│       └── new
+│           └── dockerfile
+├── Godeps
+│   └── Godeps.json
+├── go.mod
+├── go.sum
+├── pkg
+│   └── log
+│       ├── logger.go
+│       └── record.log
+└── README.md
+```
+
+这是我目前的项目结构，这里我采取了zap作为日志库，沿用了书里面使用的`github.com/urfave/cli`作为命令行工具。
+
+那么此时便是要真正开始写docker了！
+
+### 2.1 **世界的伊始，函数的入口**
+
+main.go:目前的main函数：
+
+```go
+const (
+	AppName = "Whalebox"
+	Version = "0.1.0"
+	Usage   = "A container runtime based on containerd"
+)
+
+func main() {
+	app := cli.NewApp()
+	app.Name = AppName
+	app.Version = Version
+	app.Usage = Usage
+
+	app.Commands = []cli.Command{
+        //这里是支持的命令，都是以结构体的形式存储的这些命令都在main_command.go中
+		initCommand,
+		runCommand,
+	}
+
+	app.Before = func(c *cli.Context) error {
+        //在初始化容器之前的准备工作
+		log.InitLogger()
+		log.Info("Starting Whalebox...")
+		return nil
+	}
+	//启动
+	if err := app.Run(os.Args); err != nil {
+		log.Error(err.Error())
+	}
+}
+```
+
+这里的日志库的初始化不做过多的介绍，而刚刚的命令则是我们需要关注的！对`github.com/urfave/cli`陌生的朋友们肯定很好奇，这是咋存储的？如下：
+
+### 2.2 **归零者的控制台，自定义你的命令**
+
+main_command.go:
+
+```go
+var initCommand = cli.Command{
+	Name:   "init",
+	Usage:  "Init container process run user's process in container. Do not call it outside.",
+    //对我们的容器进行初始化的方法
+	Action: initAction,
+}
+
+func initAction(c *cli.Context) error {
+	log.Info("init command")
+    //执行容器初始化。
+	err := container.RunContainerInitProcess()
+	if err != nil {
+		log.Error(err.Error())
+		return err
+	}
+	return nil
+}
+
+var runCommand = cli.Command{
+	Name: "run",
+	Usage: `Run a container With namespace and cgroup limit.
+		    ./cmd run -ti [command]`,
+    //这是输入命令后执行的函数
+	Action: runAction,
+    //这里的flag指的是我们在输入命令行时输入的选项！
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "ti",
+			Usage: "enable tty",
+		},
+		&cli.StringFlag{
+			Name:  "m",
+			Usage: "Set memory limit for container",
+		},
+		&cli.StringFlag{
+			Name:  "cpuset",
+			Usage: "Set CPU limit for container",
+		},
+		&cli.StringFlag{
+			Name:  "cpushare",
+			Usage: "Set CPU share for container",
+		},
+	},
+}
+
+func runAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container image name")
+		return errors.New("please specify a container image name")
+	}
+	var cmdArray []string
+	for i := 0; i < len(c.Args()); i++ {
+		cmdArray = append(cmdArray, c.Args()[i])
+	}
+	//此处是获取-ti的参数
+	tty := c.Bool("ti")
+	resource := &cgroup.ResourceConfig{
+        //获取我们输入的各种参数
+		MemoryLimit: c.String("m"),
+		CpuShares:   c.String("cpushare"),
+		CpuSet:      c.String("cpuset"),
+	}
+	//run就是在我们的run.go中的函数，他负责启动我们的容器
+	Run(tty, cmdArray, resource)
+	return nil
+}
+
+```
+
+我们在启动容器的时候，实际上就是输入run命令，然后这个run命令会建立执行用exec.command执行init命令，并且将需要执行的命令传入管道(父子进程间的通信)，这样就可以做到让子进程执行我们传入的命令，从而实现一个容器！
+
+### 2.3 **构建属于你的宇宙，容器进程的创建以及资源的控制**
+
+run.go:
+
+```go
+func Run(tty bool, cmdArray []string, resource *cgroup.ResourceConfig) {
+    //这里是创建一个管道以及命名空间的隔离，管道是方便我们发送命令的，在NewParentProcess里面，我们
+	//已经完成了init命令的执行.
+	parent, pipe := container.NewParentProcess(tty)
+	if parent == nil {
+		log.Error("Failed to create parent process")
+		return
+	}
+	if err := parent.Start(); err != nil {
+		log.Error(err.Error())
+		return
+	}
+	fmt.Println(parent.Process.Pid)
+    //根据上文，我们已经知道init命令已经完成，目前我们要做的，就是实施将命令发送给init子进程，并且将当前的进程
+    //加入到我们指定的Cgroup中，并实现资源隔离！由于新版本的Cgroup的树形结构
+    //所以我们此处在/sys/fs/cgroup目录下面创建whalebox文件夹，表示我们容器的根
+    //在这个root下面又是我们的容器的存放，为了方便，以当前进程的pid作为文件夹的名称。
+	cgroupManager := cgroup.NewCgroup("whalebox", strconv.Itoa(parent.Process.Pid))
+	cgroupManager.Set(resource)
+	sendInitCommand(cmdArray, pipe)
+	parent.Wait()
+	cgroupManager.Remove()
+	os.Exit(0)
+}
+
+// 发信号给init进程，告诉它要执行的命令
+func sendInitCommand(cmdArray []string, pipe *os.File) {
+	commamd := strings.Join(cmdArray, " ")
+	log.Info(fmt.Sprintf("Sending command to container: %s", commamd))
+	pipe.WriteString(commamd)
+	pipe.Close()
+}
+```
+
+写了点注释，放在特定的位置还是比较好理解的~
+
+然后进入到我们的`container.NewParentProcess`函数中！
+
+container_process.go:
+
+```go
+func NewParentProcess(tty bool) (*exec.Cmd, *os.File) {
+    //新建管道，用于进程间通信，待会我们还会自定义一个init命令，这个
+    //命令也会创建一个管道用于接受命令。
+	readPipe, writePipe, err := NewPipe()
+	if err != nil {
+		log.Error("NewParentProcess: Failed to create pipe: " + err.Error())
+		return nil, nil
+	}
+    //这里这是在我们当前的进程中执行init命令，为啥要执行？
+    //事实上，事实上，我们当前执行的命令是启动一个进程，然后实现资源隔离
+    //和资源限制，而我们进一步执行init，则是进入容器
+    //去初始化容器的环境，并且真正的执行我们用户的命令。
+	cmd := exec.Command("/proc/self/exe", "init")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWPID | syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+        //为啥这里没有user隔离？
+        //实际上书上这里也没有设置，设置user隔离会导致一些bug，这里就不设置了。
+	}
+	if tty {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	cmd.ExtraFiles = []*os.File{readPipe}
+	log.Info(fmt.Sprintf("Command: %v", cmd))
+	return cmd, writePipe
+}
+
+func NewPipe() (*os.File, *os.File, error) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		log.Error("NewPipe: Failed to create pipe: " + err.Error())
+		return nil, nil, err
+	}
+	log.Info(fmt.Sprintf("New pipe: read: %d, write: %d", read.Fd(), write.Fd()))
+	return read, write, nil
+}
+```
+
+是否感觉到了熟悉的画面？是的，这就是我们之前试验的时候构建的一个带有命名空间资源隔离的进程！主要的讲解还是通过注释来比较好~
+
+然后我们回到我们刚刚的run.go文件，我们是不是发现了还有一个地方等待我们去探索？没错，就是`cgroup.NewCgroup()`通过它，我们可以轻易地创建一个cgroup，并在其中实现资源隔离，如何实现资源隔离？
+
+再向下看，还会看到我们的`cgroupManager.Set()`方法，我们便可以通过它，来实现我们的资源限制了！
+当然，现在还不急，我们看看我们的Cgroup接口和resourceConfig是如何定义的
+
+```go
+package cgroup
+
+type ResourceConfig struct {
+	MemoryLimit string //内存限制
+	CpuShares   string
+	CpuSet      string
+}
+
+type CgroupInterface interface {
+	Path() string
+	//为该cgroup设置资源限制
+	Set(resources *ResourceConfig) error
+	//删除该Cgroup
+	Remove() error
+}
+```
+
+如上所示，我们定义了内存，cpu相关的限制，然后通过接口，我们可以轻易地知道，我们的cgroup的总体的实现是怎么样的，下面看看具体的cgroup实现！
+
+```go
+type Cgroup struct {
+	path string
+}
+//通过类型断言，我们能够快速的实现我们的接口，并且可以检查实现了哪些接口
+//在go代码中常用类型断言，这是一个很好的编程习惯！
+var _ CgroupInterface = (*Cgroup)(nil)
+
+// 新建一个cgroup，由于whalebox的子cgroup需要从whalebox继承内存管理/cpu管理等，所以需要手动将继承选项添加进去。
+func NewCgroup(Root string, pid string) *Cgroup {
+	Path := Root + "/" + pid
+    //这里GetCgroupPath是另一个工具函数，我们待会再说
+    //就是找到我们当前容器的cgroup的目录，如果没有，就创建！
+	if CgroupPath, err := GetCgroupPath(Path, true); err == nil {
+        //将我们的pid加入到当前创建的Cgroup
+		if err := os.WriteFile(path.Join(CgroupPath, "cgroup.procs"), []byte(pid), 0644); err != nil {
+			log.Error(fmt.Sprintf("failed to add process to cgroup: %v", err))
+			return nil
+		}
+		//由于我们还需要实现资源隔离，但是默认我们创建的的whalebox是没有继承选项的，所以我们需要手动添加继承子系统选项
+		if err := os.WriteFile(path.Join(CgroupPath[:len(CgroupPath)-len(pid)-1], "cgroup.subtree_control"), []byte("+memory +cpuset +cpu"), 0644); err != nil {
+			log.Error(fmt.Sprintf("failed to set cgroup.subtree_control: %v", err))
+			return nil
+		}
+	}
+    //返回我们的cgroup实例
+	return &Cgroup{
+		path: Path,
+	}
+}
+
+func (s *Cgroup) Path() string {
+	return s.path
+}
+
+//这里是我们的设置资源隔离的选项的方法。
+func (s *Cgroup) Set(resources *ResourceConfig) error {
+	if err := s.SetMemoryLimit(resources); err != nil {
+		return err
+	}
+	if err := s.SetCpuShares(resources); err != nil {
+		return err
+	}
+	if err := s.SetCpuLimit(resources); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Remove implements CgroupInterface.
+func (s *Cgroup) Remove() error {
+	if err := os.RemoveAll(s.Path()); err != nil {
+		log.Error(fmt.Sprintf("failed to remove cgroup %s: %v", s.Path(), err))
+		return fmt.Errorf("failed to remove cgroup %s: %v", s.Path(), err)
+	}
+	log.Info(fmt.Sprintf("cgroup %s removed", s.Path()))
+	return nil
+}
+
+
+// Set implements Subsystem, 此处为cgroup设置资源限制，也就是内存的限制
+func (s *Cgroup) SetMemoryLimit(resources *ResourceConfig) error {
+	if SubSystemPath, err := GetCgroupPath(s.Path(), true); err == nil {
+		//设置内存限制
+		if resources.MemoryLimit != "" {
+			if err := os.WriteFile(path.Join(SubSystemPath, "memory.max"), []byte(resources.MemoryLimit), 0644); err != nil {
+				return fmt.Errorf("failed to set memory limit: %v", err)
+			}
+			return nil
+		}
+		log.Debug("memory limit not set")
+		return nil
+	} else {
+		return fmt.Errorf("failed to get cgroup path: %v", err)
+	}
+}
+
+
+
+// Set implements Subsystem.
+func (s *Cgroup) SetCpuShares(resources *ResourceConfig) error {
+	if subsysCgroupPath, err := GetCgroupPath(s.Path(), true); err == nil {
+		if resources.CpuShares != "" {
+			if err := os.WriteFile(path.Join(subsysCgroupPath, "cpu.shares"), []byte(resources.CpuShares), 0644); err != nil {
+				log.Error("Cpusub:" + "failed to set cpu shares: %v" + err.Error())
+				return fmt.Errorf("failed to set cpu shares: %v", err)
+			}
+			return nil
+		}
+		log.Debug("cpu shares not set")
+		return nil
+	} else {
+		log.Error("Cpusub:" + "failed to get cgroup path: %v" + err.Error())
+		return fmt.Errorf("failed to get cgroup path: %v", err)
+	}
+}
+
+
+
+// Set implements Subsystem.
+func (s *Cgroup) SetCpuLimit(resources *ResourceConfig) error {
+	if subsysCgroupPath, err := GetCgroupPath(s.Path(), true); err == nil {
+		if resources.CpuSet != "" {
+			if err := os.WriteFile(path.Join(subsysCgroupPath, "cpuset.cpus"), []byte(resources.CpuSet), 0644); err != nil {
+				log.Error("CpusetSub:" + "failed to set cpuset: %v" + err.Error())
+				return fmt.Errorf("failed to set cpuset: %v", err)
+			}
+			return nil
+		}
+		log.Debug("cpuset not set")
+		return nil
+	} else {
+		log.Error("CpusetSub:" + "failed to get cgroup path: %v" + err.Error())
+		return fmt.Errorf("failed to get cgroup path: %v", err)
+	}
+}
+
+```
+
+设置资源隔离的函数都是千篇一律的，看看就得了，都是之前测试过的内容，将我们的数据写入到相对应的文件中。
+
+然后来看看我们的GetCgroupPath是如何实现的吧
+
+utils.go
+
+```go
+const (
+	cgroupRoot = "/sys/fs/cgroup"
+)
+
+// 通过cgroupPath获取cgroup的路径
+func GetCgroupPath(cgroupPath string, autoCreate bool) (string, error) {
+	if _, err := os.Stat(path.Join(cgroupRoot, cgroupPath)); err == nil || (autoCreate && os.IsNotExist(err)) {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(path.Join(cgroupRoot, cgroupPath), 0755); err == nil {
+				return path.Join(cgroupRoot, cgroupPath), nil
+			} else {
+				log.Error(err.Error())
+				return "", fmt.Errorf("failed to create cgroup path %s: %v", path.Join(cgroupRoot, cgroupPath), err)
+			}
+		} else {
+			return path.Join(cgroupRoot, cgroupPath), nil
+		}
+	}
+	log.Error(fmt.Sprintf("cgroup path %s not found", path.Join(cgroupRoot, cgroupPath)))
+	return "", fmt.Errorf("cgroup path %s not found", path.Join(cgroupRoot, cgroupPath))
+}
+
+```
+
+由于我当前所处与Ubuntu24.02，所以可能cgroup的目录可能与各位不一样，我这里的cgroup根目录是在`/sus/fs/cgroup`上面的，所以只需要根据这个来找到我们容器的cgroup即可！
+
+到这一步，我们的Run命令以及完成了遍历，那么此时就回到我们之前遗留的Init命令吧！
+
+
+
+```go
+var initCommand = cli.Command{
+	Name:   "init",
+	Usage:  "Init container process run user's process in container. Do not call it outside.",
+    //对我们的容器进行初始化的方法
+	Action: initAction,
+}
+
+func initAction(c *cli.Context) error {
+	log.Info("init command")
+    //执行容器初始化。
+	err := container.RunContainerInitProcess()
+	if err != nil {
+		log.Error(err.Error())
+		return err
+	}
+	return nil
+}
+```
+
+我们可以看到，我们的init命令直接调用了container.RunContainerProcess进行了初始化
+
+init.go
+
+```go
+func RunContainerInitProcess() error {
+	cmdArray := readUserCommand()
+	if cmdArray == nil {
+        //如果我们传入的命令为空
+		log.Debug("No command received from parent")
+		return errors.New("no command received from parent")
+	}
+	log.Info(fmt.Sprintf("RunContainerInitProcess, cmd is: %s", cmdArray))
+    //我们的文件挂载选项这里主要是为了方便我们之后的ps命令
+    //因为默认，在我们独立的namespace中，创建进程是不会自动挂载的
+	defaultMountFlags := syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV
+    //这里一定要注意！！！
+    //书上直接扔一个syscall.Mount("proc", "/proc", "proc", uintptr(defaultMountFlags), "")
+    //我直接照着写下来，结果把我主机上的挂载文件也全部搞没了😡😡
+    //害我搞了半天。
+    syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")
+	syscall.Mount("proc", "/proc", "proc", uintptr(defaultMountFlags), "")
+    //找到我们需要执行的命令
+	path, err := exec.LookPath(cmdArray[0])
+	if err != nil {
+		log.Error(err.Error())
+		return err
+	}
+	log.Info(fmt.Sprintf("Find path: %s", path))
+	//执行
+	if err := syscall.Exec(path, cmdArray[0:], os.Environ()); err != nil {
+		log.Error(err.Error())
+		return err
+	}
+	return nil
+}
+
+func readUserCommand() []string {
+    //获取一个读管道，通过该管道，我们可以读取
+    //父进程传递的命令，因为我们刚刚是通过管道将我们需要
+    //执行的命令传递给子进程的，所以这一步不可少！！
+	pipe := os.NewFile(uintptr(3), "pipe")
+	msg, err := io.ReadAll(pipe)
+	if err != nil {
+		log.Error("init read pipe error:" + err.Error())
+		return nil
+	}
+	log.Info(fmt.Sprintf("Received command from parent: %s", msg))
+	return strings.Split(string(msg), " ")
+}
+
+```
+
+到这里，我们Run一个容器需要的代码就写完了，那么我们可以来看看效果！
+
+![QQ_1743077692114](./assets/QQ_1743077692114.png)
+
+请注意，我们输入的时候并不能直接输入`./cmd run -ti -cpushare 10 stress --vm-bytes 4096m --vm-keep -m 1 &`这会导致你的-m参数被识别成memorylimit的参数，所以不行，否则只能给你的-m改一下参数名了~
+
+中途踩了好多坑，包括但不限于这个`-m`参数，书上明明白白写着，抄下来，但是直接退出，这也太无敌了....还让我debug了半天，还是感谢自己在测试的时候就在总结这些知识点，让我有机会仔细找bug。
+
+## 3. **镜像，为容器加上一层魔法~**
+
+我们现在确确实实能够创建一个容器，并且为他添加上资源的限制，甚至能够通过管道的形式，将命令传递给子进程，使得我们的命令更加灵活，那么问题又来了，我们在进入容器的时候会发现，无论我们如何输入ls，他总是会在当前目录下进行**领域展开**，然而我们在docker里面，却能够看似独享一个文件系统，那么，我们就迎来了接下来的内容--镜像。
+
+首先我们需要一个真正的小系统，将这个小系统放在我们的容器中，然后我们能够访问这个小系统的文件，并且使用独立的挂载目录。
+
+这里我们使用`busybox`，首先通过`docker pull busybox`拉取，然后输入`docker run -d busybox top -d`创建一个容器id，通过`docker export -o busybox.tar [容器ID]`将这个容器导出到当前的目录下，然后`tar -xvf busybox.tar -C busybox/`来将其解压，这个文件夹将在之后成为我们挂载的根目录，首先我们需要做的就是更改当前的工作目录，因为我们执行命令的时候，会寻找一个根目录来作为容器的工作目录，此时我们直接使用这个busybox的文件夹作为根目录，在你的`func **NewParentProcess**(tty bool) (*exec.Cmd, *os.File)`方法中添加`cmd.Dir = "你的busybox目录"`，然后我们就可以开始了！
+
+我们将在init.go中补充以及修改内容，总体结构如下，这里重点还是以注释为主要的讲解办法。
+
+```go
+func RunContainerInitProcess() error {
+	cmdArray := readUserCommand()
+	if cmdArray == nil {
+		log.Debug("No command received from parent")
+		return errors.New("no command received from parent")
+	}
+	log.Info(fmt.Sprintf("RunContainerInitProcess, cmd is: %s", cmdArray))
+	//这里将挂载的流程替换为函数，这里是唯一修改的地方！
+    //该函数的其他地方不用看了，直接看SetupMount就可以
+	SetupMount()
+
+	path, err := exec.LookPath(cmdArray[0])
+	if err != nil {
+		log.Error(err.Error())
+		return err
+	}
+	log.Info(fmt.Sprintf("Find path: %s", path))
+
+	if err := syscall.Exec(path, cmdArray[0:], os.Environ()); err != nil {
+		log.Error(err.Error())
+		return err
+	}
+	return nil
+}
+
+func readUserCommand() []string {
+	pipe := os.NewFile(uintptr(3), "pipe")
+
+	log.Debug("pipe Create")
+
+	msg, err := io.ReadAll(pipe)
+	if err != nil {
+		log.Error("init read pipe error:" + err.Error())
+		return nil
+	}
+	log.Info(fmt.Sprintf("Received command from parent: %s", msg))
+	return strings.Split(string(msg), " ")
+}
+
+
+//设置我们的工作目录挂载，并且设置挂载隔离
+func SetupMount() {
+    //获取当前的工作目录，也就是我们之前的cmd.dir设置的目录！
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Error("SetupMount: Failed to get current directory: " + err.Error())
+		return
+	}
+	log.Info("Current directory: " + pwd)
+    //将我们的挂载目录和宿主机隔离，否则会影响到宿主机
+    //这一步不加去运行容器，你的linux可以准备恢复到上一个快照了
+	syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")
+    //又是一个自定义的函数，这一步主要是讲容器的根目录切换到我们的工作目录。
+	pivotRoot(pwd)
+	defaultMountFlags := syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV
+	if err := syscall.Mount("proc", "/proc", "proc", uintptr(defaultMountFlags), ""); err != nil {
+		log.Error("SetupMount: Failed to mount proc: " + err.Error())
+		return
+	}
+	if err := syscall.Mount("tmpfs", "/tmp", "tmpfs", uintptr(defaultMountFlags), ""); err != nil {
+		log.Error("SetupMount: Failed to mount tmpfs: " + err.Error())
+		return
+	}
+}
+
+
+func pivotRoot(root string) error {
+	if err := syscall.Mount(root, root, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		log.Error("pivotRoot: Failed to bind mount root: " + err.Error())
+		return err
+	}
+	pivotDir := filepath.Join(root, ".pivot_root")
+	if err := os.Mkdir(pivotDir, 0777); err != nil {
+		log.Error("pivotRoot: Failed to create pivot directory: " + err.Error())
+		return err
+	}
+	if err := syscall.PivotRoot(root, pivotDir); err != nil {
+		log.Error("pivotRoot: Failed to pivot root: " + err.Error())
+		return err
+	}
+	if err := syscall.Chdir("/"); err != nil {
+		log.Error("pivotRoot: Failed to change directory to /: " + err.Error())
+		return err
+	}
+	pivotDir = filepath.Join("/", ".pivot_root")
+	if err := syscall.Unmount(pivotDir, syscall.MNT_DETACH); err != nil {
+		log.Error("pivotRoot: Failed to unmount pivot directory: " + err.Error())
+		return err
+	}
+	return os.Remove(pivotDir)
+}
+```
+
+
+
+
+
+在bash里面启动容器，我们能够看见以下的内容
+
+```go
+root@rinai-VMware-Virtual-Platform:/home/rinai/PROJECTS/Whalebox/cmd# ./cmd run -ti sh
+12855
+/ # ls -l
+total 44
+drwxr-xr-x    2 root     root         12288 Sep 26 21:31 bin
+drwxr-xr-x    4 root     root          4096 Mar 27 12:31 dev
+drwxr-xr-x    3 root     root          4096 Mar 27 12:31 etc
+drwxr-xr-x    2 nobody   nobody        4096 Sep 26 21:31 home
+drwxr-xr-x    2 root     root          4096 Sep 26 21:31 lib
+lrwxrwxrwx    1 root     root             3 Sep 26 21:31 lib64 -> lib
+dr-xr-xr-x  560 root     root             0 Mar 27 14:18 proc
+drwx------    2 root     root          4096 Mar 27 14:14 root
+drwxr-xr-x    2 root     root          4096 Mar 27 12:31 sys
+drwxrwxrwt    2 root     root            40 Mar 27 14:18 tmp
+drwxr-xr-x    4 root     root          4096 Sep 26 21:31 usr
+drwxr-xr-x    4 root     root          4096 Sep 26 21:31 va
+```
 
