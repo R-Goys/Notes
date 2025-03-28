@@ -886,6 +886,8 @@ func readUserCommand() []string {
 
 ## 3. **镜像，为容器加上一层魔法~**
 
+### 3.1 **busybox，我们构造镜像的起点**
+
 我们现在确确实实能够创建一个容器，并且为他添加上资源的限制，甚至能够通过管道的形式，将命令传递给子进程，使得我们的命令更加灵活，那么问题又来了，我们在进入容器的时候会发现，无论我们如何输入ls，他总是会在当前目录下进行**领域展开**，然而我们在docker里面，却能够看似独享一个文件系统，那么，我们就迎来了接下来的内容--镜像。
 
 首先我们需要一个真正的小系统，将这个小系统放在我们的容器中，然后我们能够访问这个小系统的文件，并且使用独立的挂载目录。
@@ -988,9 +990,7 @@ func pivotRoot(root string) error {
 }
 ```
 
-
-
-
+嗯，到这一步，我们的对一个独立文件目录的需求就解决了
 
 在bash里面启动容器，我们能够看见以下的内容
 
@@ -1012,4 +1012,213 @@ drwxrwxrwt    2 root     root            40 Mar 27 14:18 tmp
 drwxr-xr-x    4 root     root          4096 Sep 26 21:31 usr
 drwxr-xr-x    4 root     root          4096 Sep 26 21:31 va
 ```
+
+但是我们还有一个需求--真正的镜像
+
+在之前的实验中，我们知道，我们docker的容器在底层共享一个镜像，而在进行写入操作的时候，就会利用unionFS来实现将我们写入的数据放入到**可写层**，而不会改变这个镜像，而事实上在我们这里如果进行写入操作的话，就会对镜像造成一些修改，所以我们需要通过另一个工具来实现读写层的分离。
+
+由于我的系统貌似不支持aufs，这里采取的是overlayfs，如果需要使用aufs的话，可以去参考《自己动手写docker》这本书，我在很大程度上也是看着这本书来写的。
+
+
+
+### 3.2 **让Overlayfs为你实现读写层的分离！**
+
+首先我们需要在container包下面创建一个volume.go，用来存储我们实现overlayfs的逻辑。
+
+**应该咋做？**
+
+首先我们需要回忆一下我们之前的实验做了些什么？
+
+我们需要当前的镜像目录的同级加上**work**(工作目录)/**readOnlyLayer**(只读层，我们的镜像)/**WriteLayer**(写入层，实现COW)，实际上，我们就是创建了这几个目录，然后执行了overlayfs的初始化命令而已，说干就干！
+
+```go
+func NewWorkSpace(RootURL, mntURL string) {
+	CreateReadOnlyLayer(RootURL)
+	CreateWriteLayer(RootURL)
+	CreateMountPoint(RootURL, mntURL)
+}
+
+func CreateReadOnlyLayer(RootURL string) {
+	busyboxURL := RootURL + "busybox/"
+	busyboxTarURL := RootURL + "busybox.tar"
+    //查看文件是否存在
+	exist, err := PathExists(busyboxURL)
+	if err != nil {
+		log.Error("CreateReadOnlyLayer, PathExists error: " + err.Error())
+		return
+	}
+	if !exist {
+        //不存在，先创建
+		if err := os.Mkdir(busyboxURL, 0777); err != nil {
+			log.Error("CreateReadOnlyLayer, Mkdir error: " + err.Error())
+			return
+		}
+        //然后将其解压到刚刚创建的文件
+		if _, err := exec.Command("tar", "-xvf", busyboxTarURL, "-C", busyboxURL).CombinedOutput(); err != nil {
+			log.Error("CreateReadOnlyLayer, tar error: " + err.Error())
+		}
+	}
+}
+
+func CreateWriteLayer(RootURL string) {
+	writeURL := RootURL + "writeLayer/"
+	if err := os.Mkdir(writeURL, 0777); err != nil {
+		log.Error("CreateWriteLayer, Mkdir error: " + err.Error())
+	}
+}
+
+func CreateMountPoint(RootURL, mntURL string) {
+	if err := os.Mkdir(mntURL, 0777); err != nil {
+		log.Error("CreateMountPoint, Mkdir mntURL error: " + err.Error())
+		return
+	}
+
+	workdirURL := RootURL + "work"
+	if err := os.Mkdir(workdirURL, 0777); err != nil {
+		log.Error("CreateMountPoint, Mkdir Workdir error: " + err.Error())
+		return
+	}
+	//这里的参数设定可以参考之前我们输入的命令
+    //就是初始化我们的overlay文件系统的命令。
+    //这里就是设定相对应的层。
+	builder := strings.Builder{}
+	builder.WriteString("lowerdir=")
+	builder.WriteString(RootURL + "busybox,")
+	builder.WriteString("upperdir=")
+	builder.WriteString(RootURL + "writeLayer,")
+	builder.WriteString("workdir=")
+	builder.WriteString(RootURL + "work")
+
+	cmd := exec.Command("mount", "-t", "overlay", "overlay", "-o", builder.String(), mntURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Error("CreateMountPoint, mount error: " + err.Error())
+		return
+	}
+}
+
+func PathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+```
+
+总体的逻辑其实是很简单的，更多的篇幅其实是用`Mkdir`去新建文件。
+
+然而，我们到了这一步，我们确确实实具有了构造一个镜像的能力了，然而这并不够，我们需要将`NewWorkSpace()`放在一个合理的位置`container_process.go`中，具体位置如下：
+```go
+func NewParentProcess(tty bool) (*exec.Cmd, *os.File) {
+	readPipe, writePipe, err := NewPipe()
+	if err != nil {
+		log.Error("NewParentProcess: Failed to create pipe: " + err.Error())
+		return nil, nil
+	}
+	cmd := exec.Command("/proc/self/exe", "init")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWPID | syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+		// syscall.CLONE_NEWUSER,
+		// UidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      0,
+		// 		Size:        1,
+		// 	},
+		// },
+		// GidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      1000,
+		// 		Size:        1,
+		// 	},
+		// },
+	}
+	if tty {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	cmd.ExtraFiles = []*os.File{readPipe}
+    //修改的地方！！！！！
+    //这里我是使用了自己自定义的文件目录来存放镜像了
+    //随便设置都可以。
+	mntURL := "/home/rinai/PROJECTS/Whalebox/example/example3/mnt/"
+	rootURL := "/home/rinai/PROJECTS/Whalebox/example/example3/"
+	NewWorkSpace(rootURL, mntURL)
+	cmd.Dir = mntURL
+	log.Info(fmt.Sprintf("Command: %v", cmd))
+	return cmd, writePipe
+}
+
+func NewPipe() (*os.File, *os.File, error) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		log.Error("NewPipe: Failed to create pipe: " + err.Error())
+		return nil, nil, err
+	}
+	log.Info(fmt.Sprintf("New pipe: read: %d, write: %d", read.Fd(), write.Fd()))
+	return read, write, nil
+}
+```
+
+可以对比以下之前的代码，来进行比对。
+
+但是，仅仅是这样吗？我们在退出容器的时候，还需要取消挂载，并删除这些文件。
+
+```go
+func DeleteWorkSpace(rootURL, mntURL string) {
+	DeleteMountPoint(rootURL, mntURL)
+	DeleteWriteLayer(rootURL)
+	DeleteWorkdir(rootURL)
+}
+
+func DeleteMountPoint(rootURL, mntURL string) {
+    //这一步是取消我们的挂载
+	cmd := exec.Command("umount", mntURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Error("DeleteMountPoint, umount error: " + err.Error())
+		return
+	}
+
+	if err := os.RemoveAll(mntURL); err != nil {
+		log.Error("DeleteMountPoint, RemoveAll mntURL error: " + err.Error())
+	}
+}
+
+func DeleteWriteLayer(rootURL string) {
+	writeURL := rootURL + "writeLayer/"
+	if err := os.RemoveAll(writeURL); err != nil {
+		log.Error("DeleteWriteLayer, RemoveAll writeURL error: " + err.Error())
+	}
+}
+
+func DeleteWorkdir(rootURL string) {
+	workdirURL := rootURL + "work"
+	if err := os.RemoveAll(workdirURL); err != nil {
+		log.Error("DeleteWorkdir, RemoveAll workdirURL error: " + err.Error())
+	}
+}
+
+```
+
+大部分都是删除的逻辑，然后我们需要将`DeleteWorkSpace()`放到一个我们的`Run()`函数中，这样，我们就能够真正的实现一个镜像了！！！
+
+让我们来看看效果吧！
+
+![QQ_1743148534500](./assets/QQ_1743148534500.png)
+
+显然，我们确实能够精确的进入到容器中，并且实现底层的镜像公用，在执行写入的时候，也的确能够将我们的写入信息写入到我们指定的写入层，而在我们退出容器之后，我们与overlays相关的文件也都删除，不留痕迹，这是一件足够令人兴奋的壮举，我们已经跨越了许多困难，最终真的实现了一个镜像！
+
+当然，故事到这里才刚刚开始。
 
