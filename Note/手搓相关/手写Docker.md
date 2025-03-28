@@ -1023,7 +1023,7 @@ drwxr-xr-x    4 root     root          4096 Sep 26 21:31 va
 
 ### 3.2 **让Overlayfs为你实现读写层的分离！**
 
-首先我们需要在container包下面创建一个volume.go，用来存储我们实现overlayfs的逻辑。
+首先我们需要在container包下面创建一个volume.go和overlayfs.go，用来存储我们实现overlayfs的逻辑。
 
 **应该咋做？**
 
@@ -1031,13 +1031,21 @@ drwxr-xr-x    4 root     root          4096 Sep 26 21:31 va
 
 我们需要当前的镜像目录的同级加上**work**(工作目录)/**readOnlyLayer**(只读层，我们的镜像)/**WriteLayer**(写入层，实现COW)，实际上，我们就是创建了这几个目录，然后执行了overlayfs的初始化命令而已，说干就干！
 
+先看看我们的volume.go：
+
 ```go
 func NewWorkSpace(RootURL, mntURL string) {
 	CreateReadOnlyLayer(RootURL)
 	CreateWriteLayer(RootURL)
 	CreateMountPoint(RootURL, mntURL)
 }
+```
 
+哈哈，很简短，但是之后会扩展很多！
+
+下面是overlayfs.go
+
+```go
 func CreateReadOnlyLayer(RootURL string) {
 	busyboxURL := RootURL + "busybox/"
 	busyboxTarURL := RootURL + "busybox.tar"
@@ -1222,3 +1230,220 @@ func DeleteWorkdir(rootURL string) {
 
 当然，故事到这里才刚刚开始。
 
+### 3.3 **Volume，赋予容器持久的生命力**
+
+我们知道，我们一般在创建像Mysql，Redis，Kafka这种容器的时候，为了保证数据持久化，会挂载数据卷到另外的文件系统里面，接下来便是实现我们的`volume`的环节。
+
+**如何实现？**
+
+其实我们要做的只有一件事，就是将镜像中的文件映射到镜像之外的地方，并且我们的宿主机能够进行访问。
+
+我在这里将这个映射的文件指定为：`/home/rinai/PROJECTS/Whalebox/example/example3/volume`，而映射到镜像中的`containerVolume`文件夹，由于镜像中并没有，所以我们需要来判断文件是否存在，并进行创建。
+
+首先肯定需要修改一下我们的命令结构了，回到我们的main_command.go吧！
+
+```go
+var runCommand = cli.Command{
+	Name: "run",
+	Usage: `Run a container With namespace and cgroup limit.
+		    ./cmd run -ti [command]`,
+	Action: runAction,
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "ti",
+			Usage: "enable tty",
+		},
+		&cli.StringFlag{
+			Name:  "m",
+			Usage: "Set memory limit for container",
+		},
+		&cli.StringFlag{
+			Name:  "cpuset",
+			Usage: "Set CPU limit for container",
+		},
+		&cli.StringFlag{
+			Name:  "cpushare",
+			Usage: "Set CPU share for container",
+		},
+		&cli.StringFlag{
+			Name:  "v",
+			Usage: "Set volume for container",
+		},
+	},
+}
+
+func runAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container image name")
+		return errors.New("please specify a container image name")
+	}
+	var cmdArray []string
+	for i := 0; i < len(c.Args()); i++ {
+		log.Debug(fmt.Sprintf("Arg[%d]: %s", i, c.Args()[i]))
+		cmdArray = append(cmdArray, c.Args()[i])
+	}
+	tty := c.Bool("ti")
+	resource := &cgroup.ResourceConfig{
+		MemoryLimit: c.String("m"),
+		CpuShares:   c.String("cpushare"),
+		CpuSet:      c.String("cpuset"),
+	}
+    //获取我们的卷参数，格式为宿主机:容器内
+	volume := c.String("v")
+	re, _ := json.Marshal(resource)
+	log.Debug(string(re))
+	Run(tty, cmdArray, resource, volume)
+	return nil
+}
+```
+
+我们的`Run()`也有一定的小改动，我会在注释标出的
+
+```go
+func Run(tty bool, cmdArray []string, resource *cgroup.ResourceConfig, volume string) {
+    //注意我们的NewParentProcess函数签名改变了，
+    //我们接下来会修改的~
+	parent, pipe := container.NewParentProcess(tty, volume)
+	if parent == nil {
+		log.Error("Failed to create parent process")
+		return
+	}
+	if err := parent.Start(); err != nil {
+		log.Error(err.Error())
+		return
+	}
+	fmt.Println(parent.Process.Pid)
+	cgroupManager := cgroup.NewCgroup("whalebox", strconv.Itoa(parent.Process.Pid))
+	cgroupManager.Set(resource)
+	sendInitCommand(cmdArray, pipe)
+	parent.Wait()
+	cgroupManager.Remove()
+	mntURL := "/home/rinai/PROJECTS/Whalebox/example/example3/mnt"
+	rootURL := "/home/rinai/PROJECTS/Whalebox/example/example3/"
+    //这里就是将卷传进去了，没啥改动
+	container.DeleteWorkSpace(rootURL, mntURL, volume)
+	os.Exit(0)
+}
+```
+
+再来到我们的`NewParentProcess()`函数，其实除了函数签名，变化也并不大~
+
+```go
+func NewParentProcess(tty bool, volume string) (*exec.Cmd, *os.File) {
+	readPipe, writePipe, err := NewPipe()
+	if err != nil {
+		log.Error("NewParentProcess: Failed to create pipe: " + err.Error())
+		return nil, nil
+	}
+	cmd := exec.Command("/proc/self/exe", "init")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWPID | syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+		// syscall.CLONE_NEWUSER,
+		// UidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      0,
+		// 		Size:        1,
+		// 	},
+		// },
+		// GidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      1000,
+		// 		Size:        1,
+		// 	},
+		// },
+	}
+	if tty {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	cmd.ExtraFiles = []*os.File{readPipe}
+	mntURL := "/home/rinai/PROJECTS/Whalebox/example/example3/mnt"
+	rootURL := "/home/rinai/PROJECTS/Whalebox/example/example3/"
+    //传递参数
+	NewWorkSpace(rootURL, mntURL, volume)
+	cmd.Dir = mntURL
+	log.Info(fmt.Sprintf("Command: %v", cmd))
+	return cmd, writePipe
+}
+```
+
+其实到了这一步，改动都不是很大，真正的巨变在下面~
+
+我们到这里最主要的改动发生在volume.go中：
+
+再来看看我们的volume.go
+
+```go
+func NewWorkSpace(RootURL, mntURL, volume string) {
+	CreateReadOnlyLayer(RootURL)
+	CreateWriteLayer(RootURL)
+	CreateMountPoint(RootURL, mntURL)
+    //注意，这里是存在改动的
+    //这里在文件目录挂载完成后
+    //实现我们的volume映射
+	if volume != "" {
+		volumeURLs := volumeUrlExtract(volume)
+		length := len(volumeURLs)
+		if length == 2 && volumeURLs[0] != "" && volumeURLs[1] != "" {
+			MountVolume(RootURL, mntURL, volumeURLs)
+			log.Info(fmt.Sprintf("Mount volume: %v", volumeURLs))
+		} else {
+			log.Info(fmt.Sprintf("Invalid volume format: %s", volume))
+		}
+	}
+}
+
+func volumeUrlExtract(volume string) []string {
+	volumeURLs := strings.Split(volume, ":")
+	return volumeURLs
+}
+//将容器中的文件映射到宿主机
+func MountVolume(RootURL, mntURL string, volumeURLs []string) {
+	parentURL := volumeURLs[0]
+	containerURL := volumeURLs[1]
+	if err := os.Mkdir(parentURL, 0777); err != nil {
+		log.Info("MountVolume, Mkdir parentURL error: " + err.Error())
+	}
+	containerVolumeURL := mntURL + containerURL
+	log.Debug(fmt.Sprintf("MountVolume, parentURL: %s, containerURL: %s", parentURL, containerVolumeURL))
+	if err := os.Mkdir(containerVolumeURL, 0777); err != nil {
+		log.Info("MountVolume, Mkdir containerVolumeURL error: " + err.Error())
+	}
+	cmd := exec.Command("mount", "--bind", parentURL, containerVolumeURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Error("MountVolume, " + containerVolumeURL + " mount error: " + err.Error())
+	}
+}
+//取消挂载，并且取消我们的映射
+func DeleteMountPointWithVolume(rootURL, mntURL string, volumeURLs []string) {
+	containerURL := mntURL + volumeURLs[1]
+	cmd := exec.Command("umount", containerURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Error("unmountVolume error: " + err.Error())
+	}
+
+	cmd = exec.Command("umount", mntURL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Error("umount error: " + err.Error())
+	}
+	if err := os.RemoveAll(mntURL); err != nil {
+		log.Error("DeleteMountPointWithVolume, RemoveAll mntURL error: " + err.Error())
+	}
+}
+
+```
+
+ok，到了这一步，我们的修改基本完成，我们可以实现真正的数据卷，将数据持久化了，下面让我们来测试一下吧！最终，如我们所愿，我们在退出容器之后，重新启动，依旧可以获得我们之前写入的内容！
+
+![QQ_1743170562711](./assets/QQ_1743170562711.png)
