@@ -698,11 +698,14 @@ func (s *Cgroup) Set(resources *ResourceConfig) error {
 
 // Remove implements CgroupInterface.
 func (s *Cgroup) Remove() error {
-	if err := os.RemoveAll(s.Path()); err != nil {
-		log.Error(fmt.Sprintf("failed to remove cgroup %s: %v", s.Path(), err))
-		return fmt.Errorf("failed to remove cgroup %s: %v", s.Path(), err)
+	if SubSystemPath, err := GetCgroupPath(s.Path(), true); err == nil {
+		log.Info(fmt.Sprintf("removing cgroup %s", s.Path()))
+		if err := os.RemoveAll(SubSystemPath); err != nil {
+			log.Error(fmt.Sprintf("failed to remove cgroup %s: %v", s.Path(), err))
+			return fmt.Errorf("failed to remove cgroup %s: %v", s.Path(), err)
+		}
+		log.Info(fmt.Sprintf("cgroup %s removed", s.Path()))
 	}
-	log.Info(fmt.Sprintf("cgroup %s removed", s.Path()))
 	return nil
 }
 
