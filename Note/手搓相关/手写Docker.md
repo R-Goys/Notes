@@ -1513,3 +1513,376 @@ func commitContainer(imageName string) {
 到了这里，我们已经实现了一个镜像+容器的基本的功能，但是，我们在使用docker的时候，所熟知的`docker logs`/`docker ps`/`docker exec`都还没有实现，接下来，我会带领大家一步一步实现。
 
 ## 4. **为你的docker添砖加瓦**
+
+### 4.1 **后台进程，启动！**
+
+我们想要让我们的容器后台运行，我们要做的第一步就是为我们的run命令添加一个`-d`选项
+
+```go
+		&cli.BoolFlag{
+			Name:  "d",
+			Usage: "detach container",
+		},
+```
+
+然后回到我们的runCommand()，我们可以看看差别
+
+```go
+func runAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container image name")
+		return errors.New("please specify a container image name")
+	}
+	var cmdArray []string
+	for i := 0; i < len(c.Args()); i++ {
+		cmdArray = append(cmdArray, c.Args()[i])
+	}
+	//此处拿到第一条参数
+	//此处是获取-ti的参数
+	tty := c.Bool("ti")
+    //拿到我们的-d参数
+	detch := c.Bool("d")
+    //如果同时出现，这是不行的！
+	if tty && detch {
+		log.Error("Please specify only one of -ti and -d")
+		return errors.New("please specify only one of -ti and -d")
+	}
+	resource := &cgroup.ResourceConfig{
+		MemoryLimit: c.String("m"),
+		CpuShares:   c.String("cpushare"),
+		CpuSet:      c.String("cpuset"),
+	}
+	volume := c.String("v")
+	re, _ := json.Marshal(resource)
+	log.Debug(string(re))
+    //仅仅传入tty就可以了，tty前台运行
+	Run(tty, cmdArray, resource, volume)
+	return nil
+}
+```
+
+随后我们的Run逻辑也会改变一部分
+
+```go
+func Run(tty bool, cmdArray []string, resource *cgroup.ResourceConfig, volume string) {
+	parent, pipe := container.NewParentProcess(tty, volume)
+	if parent == nil {
+		log.Error("Failed to create parent process")
+		return
+	}
+	if err := parent.Start(); err != nil {
+		log.Error(err.Error())
+		return
+	}
+	fmt.Println(parent.Process.Pid)
+	cgroupManager := cgroup.NewCgroup("whalebox", strconv.Itoa(parent.Process.Pid))
+	cgroupManager.Set(resource)
+	sendInitCommand(cmdArray, pipe)
+    //主要改动在这里，如果tty为true，那么就会以交互模式运行
+    //如果为false，那就会在后台运行。
+	if tty {
+		parent.Wait()
+		container.DeleteWorkSpace(Common.RootPath, Common.MntPath, volume)
+		cgroupManager.Remove()
+	}
+	os.Exit(0)
+}
+```
+
+**这里为啥要这么写？**
+
+事实上，我们的代码在sendInitCommand之后其实我们的Init()进程就已经开始真正在运行我们的容器了，而接下来仅仅是前台交互和后台运行的问题，所以如果我们需要后台运行的话，我们就可以关闭这一个进程了，尽管这是init的父进程，但是如果关闭这个父进程之后，我们的id为1的进程回去接管这个进程，所以我们可以放心的关掉这个父进程了！
+
+那么我们可以来看看运行的结果！
+
+![QQ_1743231189164](./assets/QQ_1743231189164.png)
+
+当我们启动使用top作为容器的前台进程，然后我们可以输入`ps -ef`来查看我们的这个top进程是否还健在，显然，我们在图片中可以看到，我们的top依旧存在，并且它的父进程id变成了1，这恰好应证了我们之前的说法，尽管容器的父进程退出，但是子进程被id为1的进程接管，于是还健在，甚至，我们可以进入到`/sys/fs/whalebox/[这个容器的进程id]`尝试去删除这个进程，你会
+
+### 4.2 **查看你的容器信息**
+
+这部分，我们详细说说如何实现我们的`docker ps`命令。
+
+在这里，我们需要做一个准备工作，就是为我们的容器添加ID以及Name，name比较easy，直接在run的参数中，添加上`-name`的选项即可：
+
+```go
+		&cli.StringFlag{
+			Name:  "name",
+			Usage: "Set container name",
+		},
+```
+
+随后在runAction中读取，这里也会涉及到一些改动
+```go
+func runAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container image name")
+		return errors.New("please specify a container image name")
+	}
+	var cmdArray []string
+	for i := 0; i < len(c.Args()); i++ {
+		cmdArray = append(cmdArray, c.Args()[i])
+	}
+	//此处拿到第一条参数
+	//此处是获取-ti的参数
+	tty := c.Bool("ti")
+	detch := c.Bool("d")
+	if tty && detch {
+		fmt.Println("Please specify only one of -ti and -d")
+		log.Error("Please specify only one of -ti and -d")
+		return errors.New("please specify only one of -ti and -d")
+	}
+	resource := &cgroup.ResourceConfig{
+		MemoryLimit: c.String("m"),
+		CpuShares:   c.String("cpushare"),
+		CpuSet:      c.String("cpuset"),
+	}
+	volume := c.String("v")
+    //读取
+	containerName := c.String("name")
+	re, _ := json.Marshal(resource)
+	log.Debug(string(re))
+    //注意，Run函数新增一个参数
+	Run(tty, cmdArray, resource, volume, containerName)
+	return nil
+}
+```
+
+这里我们向下传递了containerName这个信息，让我们看看Run里面发生了什么变化吧！
+
+```go
+func Run(tty bool, cmdArray []string, resource *cgroup.ResourceConfig, volume, containerName string) {
+	parent, pipe := container.NewParentProcess(tty, volume)
+	if parent == nil {
+		log.Error("Failed to create parent process")
+		return
+	}
+	if err := parent.Start(); err != nil {
+		log.Error(err.Error())
+		return
+	}
+	fmt.Println("Container started, pid: ", parent.Process.Pid)
+    //这里是改动的地方，新增了一个记录的函数，将我们的
+    //容器的相关信息记录在本地磁盘上
+	containerName, err := RecordContainerInfo(parent.Process.Pid, cmdArray, containerName)
+	if err != nil {
+		log.Error("Record container info error" + err.Error())
+		return
+	}
+	cgroupManager := cgroup.NewCgroup("whalebox", strconv.Itoa(parent.Process.Pid))
+	cgroupManager.Set(resource)
+	sendInitCommand(cmdArray, pipe)
+	if tty {
+		parent.Wait()
+        //如果退出，需要删除容器在本地磁盘上的信息
+		deleteContainerInfo(containerName)
+		container.DeleteWorkSpace(Common.RootPath, Common.MntPath, volume)
+		cgroupManager.Remove()
+	}
+	os.Exit(0)
+}
+```
+
+在介绍RecordContainerInfo之前，我们需要先介绍一下我们container结构体的存储形式
+
+container_process.go
+
+```go
+type Container struct {
+	Pid        string `json:"pid"`
+	Id         string `json:"id"`
+	Name       string `json:"name"`
+	Command    string `json:"command"`
+	CreateTime string `json:"createTime"`
+	Status     string `json:"status"`
+}
+
+var (
+	RUNNING             = "running"
+	STOPPED             = "stopped"
+	EXIT                = "exited"
+	DEFAULTINFOLOCATION = "/home/rinai/PROJECTS/Whalebox/example/example4/%s/"
+	CONFIGNAME          = "config.json"	
+)
+```
+
+这里设置了相关的一些参数以及结构体，我路径是放在项目里面的，方便查看。
+
+然后，回到run.go，就在这个文件中，新增以下的方法，主要还是以注释为主，这里就是将我们的容器信息写入到相应的文件里面。
+
+方便我们用`docker ps`来查看
+
+```go
+func RecordContainerInfo(ContainerPID int, commandArray []string, containerName string) (string, error) {
+	//获取长度为12的随机字符串作为id，这是我们的自定义函数
+    id := randStringBytes(12)
+	createTime := time.Now().Format("2006-01-02 15:04:05")
+	if containerName == "" {
+        //如果为空，name就是id
+		containerName = id
+	}
+    //命令，本来是切片，转换成字符串的形式
+	command := strings.Join(commandArray, " ")
+    //初始化结构体
+	containerInfo := &container.Container{
+		Id:         id,
+		Name:       containerName,
+		Pid:        strconv.Itoa(ContainerPID),
+		Command:    command,
+		CreateTime: createTime,
+		Status:     "running",
+	}
+    //序列化成字节
+	jsonBytes, err := json.Marshal(containerInfo)
+	if err != nil {
+		log.Error("Record container info error" + err.Error())
+		return "", err
+	}
+    //转成字符串
+	jsonStr := string(jsonBytes)
+    //debug一下
+	log.Debug("Record container info: " + jsonStr)
+	//找到我们的目录
+	dir := fmt.Sprintf(container.DEFAULTINFOLOCATION, containerName)
+	if err := os.MkdirAll(dir, 0622); err != nil {
+		log.Error("Create container info dir error" + err.Error())
+		return "", err
+	}
+	//找到config.json
+	fileName := dir + "/" + container.CONFIGNAME
+    //创建
+	file, err := os.Create(fileName)
+	if err != nil {
+		log.Error("Create container info file error" + err.Error())
+		return "", err
+	}
+	defer file.Close()
+	//写入
+	if _, err := file.WriteString(jsonStr); err != nil {
+		log.Error("Write container info error" + err.Error())
+		return "", err
+	}
+	return containerName, nil
+}
+```
+
+然后再来看看我们的随机字符串如何实现的
+
+```go
+func randStringBytes(n int) string {
+	letterBytes := "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	rand.NewSource(time.Now().UnixNano())
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
+}
+```
+
+既然我们可以创建一个文件来存储信息，我们当然也需要一个删除的函数，就在当前文件下：
+
+```go
+func deleteContainerInfo(containerName string) {
+	dirURL := fmt.Sprintf(container.DEFAULTINFOLOCATION, containerName)
+	if err := os.RemoveAll(dirURL); err != nil {
+		log.Error("Delete container info error" + err.Error())
+	}
+}
+```
+
+这一步，我们完成了对容器信息的序列化，并将其写入文件，也能够在退出的时候删除他，接下来就是我们的ps命令的实现了，我们的命令结构体如下：
+
+```go
+var listCommand = cli.Command{
+	Name:   "ps",
+	Usage:  "List all running containers",
+	Action: listAction,
+}
+```
+
+listAction就是直接调用一个函数
+
+```go
+func listAction(c *cli.Context) error {
+	listContainers()
+	return nil
+}
+```
+
+随后，我们进入到listContainers函数
+
+```go
+func listContainers() {
+	dirURL := fmt.Sprintf(container.DEFAULTINFOLOCATION, "")
+    //因为此时有两个杠，所以需要去掉一个杠
+	dirURL = dirURL[:len(dirURL)-1]
+    //读这个目录中的文件
+	files, err := os.ReadDir(dirURL)
+	if err != nil {
+		log.Error("Error reading directory: " + err.Error())
+		return
+	}
+	var containers []*container.Container
+    //遍历读取
+	for _, f := range files {
+        //这里通过文件来获取文件信息
+        //主要是我们自己写的函数。
+		tmpContainer, err := GetContainerInfo(f)
+		if err != nil {
+			log.Error("Error getting container info: " + err.Error())
+			continue
+		}
+		containers = append(containers, tmpContainer)
+	}
+	w := tabwriter.NewWriter(os.Stdout, 12, 1, 3, ' ', 0)
+	//打印出来
+	fmt.Fprint(w, "ID\tNAME\tPID\tSTATUS\tCOMMAND\tCREATED\n")
+	for _, c := range containers {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			c.Id,
+			c.Name,
+			c.Pid,
+			c.Status,
+			c.Command,
+			c.CreateTime)
+	}
+	if err := w.Flush(); err != nil {
+		log.Error("Error flushing writer: " + err.Error())
+	}
+}
+```
+
+然后我们应该如何根据文件获取文件的信息？答案如下
+
+```go
+func GetContainerInfo(file os.DirEntry) (*container.Container, error) {
+    //拿到文件夹的名字
+    //这就是容器的名字
+	containerName := file.Name()
+	configFileDir := fmt.Sprintf(container.DEFAULTINFOLOCATION, containerName)
+    //把我们config文件的完整目录写出来
+	configFileDir = configFileDir + container.CONFIGNAME
+    //读取文件信息
+	content, err := os.ReadFile(configFileDir)
+	if err != nil {
+		log.Error("Error reading file: " + err.Error())
+		return nil, err
+	}
+    //将文件的信息反序列化到结构题上面
+	var c container.Container
+	if err := json.Unmarshal(content, &c); err != nil {
+		log.Error("Error unmarshalling json: " + err.Error())
+		return nil, err
+	}
+    返回
+	return &c, nil
+}
+```
+
+到这里，我们就已经完成了我们的ps命令了，我们可以通过命令来验证我们的成果！
+
+![](./assets/QQ_1743245004550.png)
+
+OK,我们已经完成了伟大的一步，就是能够让容器后台运行，并且能够保存每个容器运行的信息！
+
