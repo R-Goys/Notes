@@ -1447,3 +1447,69 @@ func DeleteMountPointWithVolume(rootURL, mntURL string, volumeURLs []string) {
 ok，到了这一步，我们的修改基本完成，我们可以实现真正的数据卷，将数据持久化了，下面让我们来测试一下吧！最终，如我们所愿，我们在退出容器之后，重新启动，依旧可以获得我们之前写入的内容！
 
 ![QQ_1743170562711](./assets/QQ_1743170562711.png)
+
+### 3.4 **打包你的镜像**
+
+我们知道，在我们运行容器时，可以通过`docker commit`来将我们的容器打包成镜像，而我们当然也能实现这样的功能
+
+这一步其实是非常简单的，为方便管理，我新建了一个common文件夹，来管理项目中会用到的路径
+
+```go
+package Common
+
+const (
+	MntPath  = "/home/rinai/PROJECTS/Whalebox/example/example3/mnt"
+	RootPath = "/home/rinai/PROJECTS/Whalebox/example/example3/"
+)
+```
+
+随后，我们需要在main函数中添加我们的命令结构体，随后在`run_command.go`中加上
+
+```go
+var commitCommand = cli.Command{
+	Name:   "commit",
+	Usage:  "Commit container changes to image",
+	Action: commitAction,
+}
+```
+
+其实最主要的就是实现我们的函数！
+
+```go
+func commitAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("-Commit: Please specify a container name")
+		return errors.New("please specify a container name")
+	}
+	imageName := c.Args()[0]
+	commitContainer(imageName)
+	return nil
+}
+```
+
+其实已经到这里，相信你已经对`github.com/urfave/cli`这个库比较熟悉了，这些代码自己都能敲出来。
+
+然后，在cmd包下面还需要创建一个commit.go，用来存放我们的commit的真正逻辑(也没多少)
+
+```go
+func commitContainer(imageName string) {
+	imageTar := Common.RootPath + imageName + ".tar"
+	log.Info(fmt.Sprintf("Committing container %s to %s", imageName, imageTar))
+
+	if _, err := exec.Command("tar", "-czf", imageTar, "-C", Common.MntPath, ".").CombinedOutput(); err != nil {
+		log.Error(fmt.Sprintf("Tar folder error: %s", err))
+	}
+}
+```
+
+到这里，我们的commit命令就算实现完成了。
+
+然后我们进入到cmd文件夹下面，输入`go build .`，随便运行一下，比如`./cmd run -ti sh`，然后打开另一个终端，输入`./cmd commit [你的想起的名字]`
+
+结果如下：
+
+![QQ_1743228572207](./assets/QQ_1743228572207.png)
+
+到了这里，我们已经实现了一个镜像+容器的基本的功能，但是，我们在使用docker的时候，所熟知的`docker logs`/`docker ps`/`docker exec`都还没有实现，接下来，我会带领大家一步一步实现。
+
+## 4. **为你的docker添砖加瓦**
