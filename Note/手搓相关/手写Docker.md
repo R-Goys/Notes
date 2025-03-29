@@ -1887,5 +1887,138 @@ func GetContainerInfo(file os.DirEntry) (*container.Container, error) {
 
 ![](./assets/QQ_1743245004550.png)
 
-OK,我们已经完成了伟大的一步，就是能够让容器后台运行，并且能够保存每个容器运行的信息！
+OK，我们已经完成了伟大的一步，就是能够让容器后台运行，并且能够保存每个容器运行的信息！
+
+下一步是什么？我们将继续为我们后台运行的进程增添色彩！
+
+### 4.3 **让我们听见后台进程的声音！**
+
+正如题目说的，我们到目前为止，后台进程发生了什么，我们都是不知道的，所以我们需要一个记录！！！就跟`docker logs`一样！
+
+此刻，~~==寂灭之时==！~~我将改变一下我们的`NewParentProcess`的结构
+
+```go
+//补充
+··CONTAINERLOGFILE    = "container.log"
+
+func NewParentProcess(tty bool, volume, containerName string) (*exec.Cmd, *os.File) {
+	readPipe, writePipe, err := NewPipe()
+	if err != nil {
+		log.Error("NewParentProcess: Failed to create pipe: " + err.Error())
+		return nil, nil
+	}
+	cmd := exec.Command("/proc/self/exe", "init")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWPID | syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+		// syscall.CLONE_NEWUSER,
+		// UidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      0,
+		// 		Size:        1,
+		// 	},
+		// },
+		// GidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      1000,
+		// 		Size:        1,
+		// 	},
+		// },
+	}
+	if tty {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+        //这里是改动的地方，如果不选择交互式启动容器
+        //就会将日志输出到文件。
+		dirURL := fmt.Sprintf(DEFAULTINFOLOCATION, containerName)
+		if err := os.MkdirAll(dirURL, 0622); err != nil {
+			log.Error("NewParentProcess: Failed to create directory: " + err.Error())
+			return nil, nil
+		}
+		stdLogFilePath := dirURL + CONTAINERLOGFILE
+        //创建日志文件
+		stdLogFile, err := os.Create(stdLogFilePath)
+		if err != nil {
+			log.Error("NewParentProcess: Failed to create log file: " + err.Error())
+			return nil, nil
+		}
+		cmd.Stdout = stdLogFile
+	}
+	cmd.ExtraFiles = []*os.File{readPipe}
+
+	NewWorkSpace(Common.RootPath, Common.MntPath, volume)
+	cmd.Dir = Common.MntPath
+	log.Info(fmt.Sprintf("Command: %v", cmd))
+	return cmd, writePipe
+}
+```
+
+进行了这个改动，我们就可以将容器的标准输出流重定向到文件了！
+
+然后我们就可以开始编写我们的logs命令逻辑了
+
+main_command.go
+
+```go
+var logCommand = cli.Command{
+	Name:   "logs",
+	Usage:  "Show container logs",
+	Action: logAction,
+}
+```
+
+这些都无需多言了，来看看我们的logAction
+
+```go
+func logAction(c *cli.Context) error {
+	if len(c.Args()) == 0 {
+		log.Error("please provide a containerName to log")
+		return fmt.Errorf("please provide a containerName to log")
+	}
+	containerName := c.Args()[0]
+	logContainer(containerName)
+	return nil
+}
+```
+
+我们可以看见，这里只需要传入一个参数，就是容器名字，随后根据这个容器名处理具体的逻辑
+
+logs.go
+
+```go
+func logContainer(containerName string) {
+    //此处是找到容器相对应的文件的路径
+	dirURL := fmt.Sprintf(container.DEFAULTINFOLOCATION, containerName)
+	logFileLocation := dirURL + container.CONTAINERLOGFILE
+    //打开这个文件
+	logFile, err := os.Open(logFileLocation)
+	if err != nil {
+		log.Error("failed to open log file" + logFileLocation)
+		return
+	}
+	defer logFile.Close()
+    //读取信息
+	content, err := io.ReadAll(logFile)
+	if err != nil {
+		log.Error("failed to read log file" + logFileLocation)
+		return
+	}
+	log.Debug("log content: " + string(content))
+    //输出到标准输出！
+	fmt.Fprint(os.Stdout, string(content))
+}
+```
+
+到这里，我们的`docker logs`的命令就结束了，我们可以输入`./cmd logs [容器名]`来看看效果，这里我使用了top来作为容器的进程，当然肯定有标准输出流，这就会被重定向到日志文件中。
+
+下面是我们的logs指令的效果。
+
+![QQ_1743256194151](./assets/QQ_1743256194151.png)
+
+到了这一步，我们容器的后台运行功能的部分还没有结束，因为，我们还需要一个`docker exec`来让我们进入容器！否则就没有意义了！！！
 
