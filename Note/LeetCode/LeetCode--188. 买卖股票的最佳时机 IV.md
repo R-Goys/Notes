@@ -33,6 +33,7 @@ func maxProfit(k int, prices []int) int {
     }
 
     for i := 1; i < n; i ++ {
+        //可以选择是否把今天当作第一天买入，保证最优性。
         buy[0] = max(buy[0], sell[0] - prices[i])
         for j := 1; j <= k ; j ++ {
             //表示当天根据之前保存卖出的状态买入，还是之前保存的买入。

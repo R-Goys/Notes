@@ -887,6 +887,8 @@ func readUserCommand() []string {
 
 中途踩了好多坑，包括但不限于这个`-m`参数，书上明明白白写着，抄下来，但是直接退出，这也太无敌了....还让我debug了半天，还是感谢自己在测试的时候就在总结这些知识点，让我有机会仔细找bug。
 
+---
+
 ## 3. **镜像，为容器加上一层魔法~**
 
 ### 3.1 **busybox，我们构造镜像的起点**
@@ -1515,6 +1517,8 @@ func commitContainer(imageName string) {
 
 到了这里，我们已经实现了一个镜像+容器的基本的功能，但是，我们在使用docker的时候，所熟知的`docker logs`/`docker ps`/`docker exec`都还没有实现，接下来，我会带领大家一步一步实现。
 
+---
+
 ## 4. **为你的docker添砖加瓦**
 
 ### 4.1 **后台进程，启动！**
@@ -2021,4 +2025,960 @@ func logContainer(containerName string) {
 ![QQ_1743256194151](./assets/QQ_1743256194151.png)
 
 到了这一步，我们容器的后台运行功能的部分还没有结束，因为，我们还需要一个`docker exec`来让我们进入容器！否则就没有意义了！！！
+
+这里需要引入cgo的概念，为什么呢？在实现`docker exec`的时候，我们需要使用到`setns`的系统调用，他需要先打开`/proc/pid/ns/`文件目录，然后使当前进程进入到指定的namespace中，但是这对go语言来说是很麻烦的事情，因为一个具有多线程的进程是无法使用setns进入到相对应的命名空间的，而go每启动一个程序就会进入多线程状态，因此我们只能借助cgo来实现。(大概知道这里不能用go就行，我也不是很清楚)
+
+cgo是什么？就是在go中使用c语言！并且能够调用c的标准库，下面我们需要在`./nsenter/nsenter.go`写入以下内容：
+
+```go
+package nsenter
+
+/*
+#define _GNU_SOURCE
+#include "errno.h"
+#include "string.h"
+#include "stdlib.h"
+#include "stdio.h"
+#include "sched.h"
+#include "fcntl.h"
+#include "unistd.h"
+
+__attribute__((constructor)) void enter_namespace(void) {
+	char *whalebox_pid;
+	whalebox_pid = getenv("whalebox_pid");
+	if (whalebox_pid) {
+		//fprintf(stdout, "got WHALEBOX_PID: %s\n", whalebox_pid);
+	} else {
+		//fprintf(stderr, "WHALEBOX_PID not set\n");
+		return;
+	}
+	char *whalebox_cmd;
+	whalebox_cmd = getenv("whalebox_cmd");
+	if (whalebox_cmd) {
+		//fprintf(stdout, "got WHALEBOX_CMD: %s\n", whalebox_cmd);
+	} else {
+		//fprintf(stdout, "WHALEBOX_CMD not set\n");
+		return;
+	}
+	int i;
+	char nspath[1024];
+	char *namespace[] = {"mnt", "ipc", "net", "pid", "uts"};
+	for (i = 0; i < 5; i ++) {
+		sprintf(nspath, "/proc/%s/ns/%s", whalebox_pid, namespace[i]);
+		int fd = open(nspath, O_RDONLY);
+		if (setns(fd, 0) == -1) {
+			//fprintf(stderr, "failed to enter %s namespace: %s\n", namespace[i], strerror(errno));
+		} else {
+			//fprintf(stdout, "entered %s namespace\n", namespace[i]);
+		}
+		close(fd);
+	}
+	int res = system(whalebox_cmd);
+	exit(0);
+	return;
+}
+*/
+import "C"
+package nsenter
+
+/*
+#define _GNU_SOURCE
+#include "errno.h"
+#include "string.h"
+#include "stdlib.h"
+#include "stdio.h"
+#include "sched.h"
+#include "fcntl.h"
+#include "unistd.h"
+
+__attribute__((constructor)) void enter_namespace(void) {
+	char *whalebox_pid;
+	whalebox_pid = getenv("whalebox_pid");
+	if (whalebox_pid) {
+		//fprintf(stdout, "got WHALEBOX_PID: %s\n", whalebox_pid);
+	} else {
+		//fprintf(stderr, "WHALEBOX_PID not set\n");
+		return;
+	}
+	char *whalebox_cmd;
+	whalebox_cmd = getenv("whalebox_cmd");
+	if (whalebox_cmd) {
+		//fprintf(stdout, "got WHALEBOX_CMD: %s\n", whalebox_cmd);
+	} else {
+		//fprintf(stdout, "WHALEBOX_CMD not set\n");
+		return;
+	}
+	int i;
+	char nspath[1024];
+	char *namespace[] = {"ipc", "net", "pid", "uts", "mnt"};
+	for (i = 0; i < 5; i ++) {
+		sprintf(nspath, "/proc/%s/ns/%s", whalebox_pid, namespace[i]);
+		int fd = open(nspath, O_RDONLY);
+		if (setns(fd, 0) == -1) {
+			//fprintf(stderr, "failed to enter %s namespace: %s\n", namespace[i], strerror(errno));
+		} else {
+			//fprintf(stdout, "entered %s namespace\n", namespace[i]);
+		}
+		close(fd);
+	}
+	int res = system(whalebox_cmd);
+	exit(0);
+	return;
+}
+*/
+import "C"
+
+```
+
+换个C版本的高亮
+
+```c
+#define _GNU_SOURCE
+#include "errno.h"
+#include "string.h"
+#include "stdlib.h"
+#include "stdio.h"
+#include "sched.h"
+#include "fcntl.h"
+#include "unistd.h"
+
+__attribute__((constructor)) void enter_namespace(void) {
+	char *whalebox_pid;
+    //从环境变量中找到对应的pid
+	whalebox_pid = getenv("whalebox_pid");
+	if (whalebox_pid) {
+		//fprintf(stdout, "got WHALEBOX_PID: %s\n", whalebox_pid);
+	} else {
+		//fprintf(stderr, "WHALEBOX_PID not set\n");
+		return;
+	}
+	char *whalebox_cmd;
+    //同样是找到对应的命令
+	whalebox_cmd = getenv("whalebox_cmd");
+	if (whalebox_cmd) {
+		//fprintf(stdout, "got WHALEBOX_CMD: %s\n", whalebox_cmd);
+	} else {
+		//fprintf(stdout, "WHALEBOX_CMD not set\n");
+		return;
+	}
+	int i;
+	char nspath[1024];
+    //我们要进入的命名空间
+    //虽然，但是这里必须要把mnt放在最后
+    //否则无法实现正确的隔离！！！
+	char *namespace[] = {"ipc", "net", "pid", "uts", "mnt"};
+	for (i = 0; i < 5; i ++) {
+		sprintf(nspath, "/proc/%s/ns/%s", whalebox_pid, namespace[i]);
+		int fd = open(nspath, O_RDONLY);
+        //加入命名空间
+		if (setns(fd, 0) == -1) {
+			//fprintf(stderr, "failed to enter %s namespace: %s\n", namespace[i], strerror(errno));
+		} else {
+			//fprintf(stdout, "entered %s namespace\n", namespace[i]);
+		}
+		close(fd);
+	}
+	int res = system(whalebox_cmd);
+	exit(0);
+	return;
+}
+```
+
+这里被注释掉的部分用于调试，不用管。
+
+在进行下一步之前，我们需要知道这个c代码是何时进行的，我们在代码中声明了`__attribute__((constructor))`这一串，指的就是这个包一旦被引用，那么就会立刻执行，也就是说，如果程序引用了这个包，程序的一开始就会执行这段C代码，但是我们事实上仅仅是期望在exec的时候才会执行这个代码，咋办？
+
+别忘记了，我们的run和init的分工，由于在程序最开始我们的whalebox_cmd这些环境变量并没有创建，也就是说，我们只需要第一次执行exec的时候为这些环境变量赋值，然后再一次调用这个程序中的命令，这样就可以正确的执行这段c代码，进而实现我们的exec。
+
+如下：
+
+```go
+var execCommand = cli.Command{
+	Name:   "exec",
+	Usage:  "Run a command in a running container",
+	Action: execAction,
+}
+```
+
+然后是我们的execAction
+
+```go
+func execAction(c *cli.Context) error {
+    //这一段就是我们的回调函数，意思是第二次执行这个
+    //这个时候，我们的环境变量已经赋值完成，所以不需要进一步执行
+    //因为此时，我们已经通过cgo进入到了容器中。
+	if os.Getenv(Common.ENV_EXEC_PID) != "" {
+		log.Info("pid callback pid: " + strconv.Itoa(os.Getegid()))
+		return nil
+	}
+	if len(c.Args()) < 2 {
+		log.Error("Please specify a container name and command to execute")
+		return errors.New("please specify a container name and command to execute")
+	}
+    //拿到容器名称
+	containerName := c.Args().Get(0)
+	var cmdArray []string
+	for _, arg := range c.Args()[1:] {
+		cmdArray = append(cmdArray, arg)
+	}
+	log.Debug("exec containerName: " + containerName + " cmdArray: " + fmt.Sprintf("%v", cmdArray))
+    //进入容器
+	execContainer(containerName, cmdArray)
+	return nil
+}
+```
+
+这里值得注意的是，我们有一个ENV_EXEC_PID的常量
+
+我将其定义在Common.go中
+
+```go
+	ENV_EXEC_PID = "whalebox_pid"
+	ENV_EXEC_CMD = "whalebox_cmd"
+```
+
+注意，这里的命名需要与cgo中的代码相对应
+
+exec.go
+
+```go
+func execContainer(containerName string, cmdArray []string) {
+    //根据容器名查找相对应的容器pid，主要是
+    //借助我们的config文件。
+	pid, err := getPidByContainerName(containerName)
+	if err != nil {
+		log.Error("Failed to get pid by container name" + err.Error())
+		return
+	}
+	cmdStr := strings.Join(cmdArray, " ")
+	log.Info("Executing command in container " + containerName + " : " + cmdStr)
+    //执行回调，然后会触发我们的cgo包中的函数调用
+	cmd := exec.Command("/proc/self/exe", "exec")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	os.Setenv(Common.ENV_EXEC_PID, pid)
+	os.Setenv(Common.ENV_EXEC_CMD, cmdStr)
+	if err := cmd.Run(); err != nil {
+		log.Error("Failed to execute command in container " + containerName + " : " + err.Error())
+	}
+}
+
+func getPidByContainerName(containerName string) (string, error) {
+	dirURL := fmt.Sprintf(container.DEFAULTINFOLOCATION, containerName)
+	configFilePath := dirURL + container.CONFIGNAME
+	configBytes, err := os.ReadFile(configFilePath)
+	if err != nil {
+		return "", err
+	}
+	var containerInfo container.Container
+	if err := json.Unmarshal(configBytes, &containerInfo); err != nil {
+		return "", err
+	}
+	return containerInfo.Pid, nil
+}
+```
+
+ok，此时我们就已经成功的完成了`exec`命令的编写
+
+看看效果
+
+![QQ_1743318913125](./assets/QQ_1743318913125.png)
+
+此时可以看见，我们已经正确地进入了我们的容器，并且正确地进入了命名空间，同时，此处需要注意的是，exit并不需要删除容器，因为他是在后台进行运行的！
+
+那么咋停止？咋删除？这便是我们接下来的课题
+
+### 4.4 **毁灭吧，世界！**
+
+#### (1) **STOP THE WORLD！**
+
+如果一个容器总是在运行，我们只能通过kill，然后手动的去删除对应的文件夹，这是一件很费力的事情，所以我们就需要一个"毁灭世界"的能力，但，我们要先以`Stop The World`开始，也就是我们的`docker stop`命令。
+
+其实我们要做的事情很简单，就是杀死这个进程，并且将对应的config文件的status改成stopped。
+
+```go
+var stopCommand = cli.Command{
+	Name:   "stop",
+	Usage:  "Stop a running container",
+	Action: stopAction,
+}
+```
+
+stopAction：
+
+这里仅仅是获取我们唯一的参数名，也就是容器名
+
+```go
+func stopAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container name to stop")
+		return errors.New("please specify a container name to stop")
+	}
+	containerName := c.Args().Get(0)
+	stopContainer(containerName)
+	return nil
+}
+```
+
+然后是真正的逻辑实现，stop.go：
+
+```go
+func stopContainer(containerName string) {
+    //调用我们之前设定好的方法，拿到容器进程的pid。
+	pid, err := getPidByContainerName(containerName)
+	if err != nil {
+		log.Error(fmt.Sprintf("Failed to get PID of container %s: %s", containerName, err))
+		return
+	}
+    //转成int
+	Pid, err := strconv.Atoi(pid)
+	if err != nil {
+		log.Error("Failed to convert PID to int: " + err.Error())
+		return
+	}
+    //系统调用，杀死进程
+	if err := syscall.Kill(Pid, syscall.SIGTERM); err != nil {
+		log.Error(fmt.Sprintf("Failed to stop container %s: %s", containerName, err))
+		return
+	}
+    //拿到对应的containerInfo
+	containerInfo, err := getContainerInfoByName(containerName)
+	if err != nil {
+		log.Error("Failed to get container info:" + err.Error())
+		return
+	}
+    //修改状态
+	containerInfo.Status = container.STOPPED
+	NewContainerInfo, err := json.Marshal(containerInfo)
+	if err != nil {
+		log.Error("Failed to marshal container info: " + err.Error())
+		return
+	}
+    //写入config文件
+	dir := fmt.Sprintf(container.DEFAULTINFOLOCATION, containerName)
+	fileName := dir + "/" + container.CONFIGNAME
+	if err := os.WriteFile(fileName, NewContainerInfo, 0622); err != nil {
+		log.Error("Failed to write container info: " + err.Error())
+		return
+	}
+	log.Info(containerName + " Container %s stopped")
+}
+
+func getContainerInfoByName(containerName string) (*container.Container, error) {
+    //组装路径
+	dirURL := fmt.Sprintf(container.DEFAULTINFOLOCATION, containerName)
+	configDir := dirURL + container.CONFIGNAME
+	content, err := os.ReadFile(configDir)
+	if err != nil {
+		log.Error("Failed to read container config file: " + err.Error())
+		return nil, err
+	}
+	var c container.Container
+    //反序列化到结构体上
+	if err := json.Unmarshal(content, &c); err != nil {
+		log.Error("Failed to unmarshal container config file: " + err.Error())
+		return nil, err
+	}
+	return &c, nil
+}
+```
+
+到这里，我们的stop也完成了，其实前面的命令熟悉了，接下来的命令编写都是很简单的事情，包括我们接下来需要新建一个删除容器的命令，也是如此。
+
+话不多说，先来看看效果如何~
+
+![QQ_1743320352612](./assets/QQ_1743320352612.png)
+
+#### (2) **世界的终焉**
+
+到了此处，我们也应该让这个容器迎来他的最后时期，尽管我们杀死了它，但是他的精神依旧残留于世间，我们需要彻底抹除他的存在！~~==暴食大罪司教==~~，我发现书上的rm实现有一些不完整，因为cgroup中的相对应的文件还没有删除！并且没有取消挂载，并删除对应的文件，所以在这里，我把这些点都加上了。
+
+那么让我们来看看实现吧！
+
+命令的实例，不必多说
+
+```go
+var removeCommand = cli.Command{
+	Name:   "rm",
+	Usage:  "Remove a container",
+	Action: removeAction,
+}
+```
+
+和stop一样，拿到容器名往下传递
+
+```go
+func removeAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container name to remove")
+		return errors.New("please specify a container name to remove")
+	}
+	containerName := c.Args().Get(0)
+	removeContainer(containerName)
+	return nil
+}
+
+```
+
+最后来到的是——我们的remove逻辑！
+
+```go
+func removeContainer(containerName string) error {
+    //借用之前的函数，拿到相关的容器信息
+	containerInfo, err := getContainerInfoByName(containerName)
+	if err != nil {
+		log.Error("Error getting container info: " + err.Error())
+		return err
+	}
+    //只会删除已经停止的容器
+	if containerInfo.Status != container.STOPPED {
+		log.Error("Container is not stopped, cannot remove it")
+		return fmt.Errorf("container is not stopped, cannot remove it")
+	}
+    //获取已有的cgroup结构体
+	cgroupManager := cgroup.GetCgroup("whalebox", containerInfo.Pid)
+	volume := containerInfo.Volume
+    //和run函数里面的一样，删除相对应的config信息
+	deleteContainerInfo(containerName)
+    //取消挂载，并删除相关文件夹
+	container.DeleteWorkSpace(Common.RootPath, Common.MntPath, volume)
+    //移除cgroup文件
+	cgroupManager.Remove()
+	log.Info("Container removed successfully")
+	return nil
+}
+```
+
+那么，我们这里还发现了一个没有看见过的函数和没有看见过的container成员(volume)，这里是我后面加上的，
+
+下面是需要改动的地方：
+
+def_limit.go
+
+```go
+func GetCgroup(Root, pid string) *Cgroup {
+	return &Cgroup{
+		path: Root + "/" + pid,
+	}
+}
+```
+
+随后我们需要改动一下container的结构，仅仅加上一行就行了
+
+```go
+type Container struct {
+	Pid        string `json:"pid"`
+	Id         string `json:"id"`
+	Name       string `json:"name"`
+	Volume     string `json:"volume"`
+	Command    string `json:"command"`
+	CreateTime string `json:"createTime"`
+	Status     string `json:"status"`
+}
+```
+
+既然改动了一个结构体！！那是不是我们所有的关于这个结构体的方法都需要改动？肯定不是，事实上，我们只有一个地方需要改动，那就是我们的recordContainerInfo()方法，它会将信息存储到本地，我们只需要修改他的内容即可。
+
+那么到了这个地方，我们的`docker rm`就算完成了，可以看看效果：
+
+![QQ_1743324125932](./assets/QQ_1743324125932.png)
+
+可以清楚的看见，我们的容器世界已经迎来了终结！那么这里需要注意的是，如果后台启动了一个sh的话，那么这个进程会直接退出！所以这里还是需要特别注意一下~，我这里最开始使用sh来，就会出现错误，说无法找到对应的进程，最好还是使用top！
+
+可以看见，我们目前已经实现了很多的功能，能坚持到这里也算不容易了，但是目前，我们所有的容器，基本都是共享的一个文件系统，并且我们也只能通过busybox这个镜像来构建容器，这显然非常死板，接下来，我们就要打破这一限制了！
+
+### 4.5 **BREAK THE LIMIT!**
+
+这一段就有点恶心了，run命令那条链路上面的基本什么函数都需要修改😫😫😫😫
+
+分开来吧，我直接粘代码了，中间改了好久，好多地方都改错了，我都忘记哪是哪了，要改动的地方，我会标记出来
+
+```go
+package Common
+
+const (
+    //注意这里，斜杠没了！
+	MntPath       = "/home/rinai/PROJECTS/Whalebox/example/example3/mnt/%s"
+	RootPath      = "/home/rinai/PROJECTS/Whalebox/example/example3"
+    //这里新增了两条路径
+	WriteLayerURL = "/home/rinai/PROJECTS/Whalebox/example/example3/writeLayer/%s"
+	WorkDirURL    = "/home/rinai/PROJECTS/Whalebox/example/example3/workDir/%s"
+	ENV_EXEC_PID  = "whalebox_pid"
+	ENV_EXEC_CMD  = "whalebox_cmd"
+)
+```
+
+runcommand()
+
+```go
+func runAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container image name")
+		return errors.New("please specify a container image name")
+	}
+	var cmdArray []string
+	for i := 0; i < len(c.Args()); i++ {
+		cmdArray = append(cmdArray, c.Args()[i])
+	}
+	//此处拿到第一条参数
+	//此处是获取-ti的参数
+	tty := c.Bool("ti")
+	detch := c.Bool("d")
+	log.Debug("tty: " + strconv.FormatBool(tty) + " detch: " + strconv.FormatBool(detch))
+	if tty && detch {
+		fmt.Println("Please specify only one of -ti and -d")
+		log.Error("Please specify only one of -ti and -d")
+		return errors.New("please specify only one of -ti and -d")
+	}
+	resource := &cgroup.ResourceConfig{
+		MemoryLimit: c.String("m"),
+		CpuShares:   c.String("cpushare"),
+		CpuSet:      c.String("cpuset"),
+	}
+	volume := c.String("v")
+	containerName := c.String("name")
+    //指令的第一段是我们的镜像名称
+	imageName := cmdArray[0]
+	cmdArray = cmdArray[1:]
+	re, _ := json.Marshal(resource)
+	log.Debug(string(re))
+    //传入镜像
+	Run(tty, cmdArray, resource, volume, containerName, imageName)
+	return nil
+}
+```
+
+Run()
+
+```go
+func Run(tty bool, cmdArray []string, resource *cgroup.ResourceConfig, volume, containerName, imageName string) {
+    //注意，这里传入了镜像的名称的新参数
+	parent, pipe := container.NewParentProcess(tty, volume, containerName, imageName)
+	if parent == nil {
+		log.Error("Failed to create parent process")
+		return
+	}
+	if err := parent.Start(); err != nil {
+		log.Error(err.Error())
+		return
+	}
+	fmt.Println("Container started, pid: ", parent.Process.Pid)
+    //这里也新建了一个参数，我们的container的结构体也改变了，新增了imageName字段
+	containerName, err := RecordContainerInfo(parent.Process.Pid, cmdArray, containerName, volume, imageName)
+	if err != nil {
+		log.Error("Record container info error" + err.Error())
+		return
+	}
+	cgroupManager := cgroup.NewCgroup("whalebox", strconv.Itoa(parent.Process.Pid))
+	cgroupManager.Set(resource)
+	sendInitCommand(cmdArray, pipe)
+	if tty {
+		parent.Wait()
+		deleteContainerInfo(containerName)
+        //服了，原书写着一个传入镜像，结果用都不用😡
+		container.DeleteWorkSpace(containerName, volume)
+		cgroupManager.Remove()
+	}
+	os.Exit(0)
+}
+```
+
+先看看RecordContainerInfo
+
+```go
+func RecordContainerInfo(ContainerPID int, commandArray []string, containerName, volume, imageName string) (string, error) {
+	id := randStringBytes(12)
+	createTime := time.Now().Format("2006-01-02 15:04:05")
+	if containerName == "" {
+		containerName = id
+	}
+	command := strings.Join(commandArray, " ")
+    //此处的结构体便是唯一的变化了~
+	containerInfo := &container.Container{
+		Id:         id,
+		Name:       containerName,
+		Pid:        strconv.Itoa(ContainerPID),
+		Volume:     volume,
+		ImageName:  imageName,
+		Command:    command,
+		CreateTime: createTime,
+		Status:     "running",
+	}
+	jsonBytes, err := json.Marshal(containerInfo)
+	if err != nil {
+		log.Error("Record container info error" + err.Error())
+		return "", err
+	}
+	jsonStr := string(jsonBytes)
+	log.Debug("Record container info: " + jsonStr)
+
+	dir := fmt.Sprintf(container.DEFAULTINFOLOCATION, containerName)
+	if err := os.MkdirAll(dir, 0622); err != nil {
+		log.Error("Create container info dir error" + err.Error())
+		return "", err
+	}
+
+	fileName := dir + "/" + container.CONFIGNAME
+	file, err := os.Create(fileName)
+	if err != nil {
+		log.Error("Create container info file error" + err.Error())
+		return "", err
+	}
+	defer file.Close()
+
+	if _, err := file.WriteString(jsonStr); err != nil {
+		log.Error("Write container info error" + err.Error())
+		return "", err
+	}
+	return containerName, nil
+}
+```
+
+随后进入到我们的NewParentProcess
+
+```go
+func NewParentProcess(tty bool, volume, containerName, imageName string) (*exec.Cmd, *os.File) {
+	readPipe, writePipe, err := NewPipe()
+	if err != nil {
+		log.Error("NewParentProcess: Failed to create pipe: " + err.Error())
+		return nil, nil
+	}
+	cmd := exec.Command("/proc/self/exe", "init")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWPID | syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+		// syscall.CLONE_NEWUSER,
+		// UidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      0,
+		// 		Size:        1,
+		// 	},
+		// },
+		// GidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      1000,
+		// 		Size:        1,
+		// 	},
+		// },
+	}
+	if tty {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		dirURL := fmt.Sprintf(DEFAULTINFOLOCATION, containerName)
+        //注意是Mkdirall
+		if err := os.MkdirAll(dirURL, 0622); err != nil {
+			log.Error("NewParentProcess: Failed to create directory: " + err.Error())
+			return nil, nil
+		}
+		stdLogFilePath := dirURL + CONTAINERLOGFILE
+		stdLogFile, err := os.Create(stdLogFilePath)
+		if err != nil {
+			log.Error("NewParentProcess: Failed to create log file: " + err.Error())
+			return nil, nil
+		}
+		cmd.Stdout = stdLogFile
+	}
+	cmd.ExtraFiles = []*os.File{readPipe}
+	//这里的参数变化了，注意！
+	NewWorkSpace(imageName, containerName, volume)
+    //这里的根目录也发生了变化~
+	cmd.Dir = fmt.Sprintf(Common.MntPath, containerName)
+	log.Info(fmt.Sprintf("Command: %v", cmd))
+	return cmd, writePipe
+}
+```
+
+来到我们的大头，NewWorkSpace
+
+```go
+func NewWorkSpace(imageName, containerName, volume string) {
+	CreateReadOnlyLayer(imageName)
+	CreateWriteLayer(containerName)
+	CreateMountPoint(containerName, imageName)
+	if volume != "" {
+		volumeURLs := volumeUrlExtract(volume)
+		length := len(volumeURLs)
+		if length == 2 && volumeURLs[0] != "" && volumeURLs[1] != "" {
+			MountVolume(containerName, volumeURLs)
+			log.Info(fmt.Sprintf("Mount volume: %v", volumeURLs))
+		} else {
+			log.Info(fmt.Sprintf("Invalid volume format: %s", volume))
+		}
+	}
+}
+```
+
+可以发现，这里的几乎所有的函数都变化了，别急，慢慢来
+
+```go
+func CreateReadOnlyLayer(imageName string) {
+    //主要是路径的组成变化
+	unTarFolderURL := Common.RootPath + "/" + imageName + "/"
+	imageURL := Common.RootPath + "/" + imageName + ".tar"
+	exist, err := PathExists(unTarFolderURL)
+	if err != nil {
+		log.Error("CreateReadOnlyLayer, PathExists error: " + err.Error())
+		return
+	}
+	if !exist {
+        //注意是Mkdirall
+		if err := os.MkdirAll(unTarFolderURL, 0777); err != nil {
+			log.Error("CreateReadOnlyLayer, Mkdir error: " + err.Error())
+			return
+		}
+		if _, err := exec.Command("tar", "-xvf", imageURL, "-C", unTarFolderURL).CombinedOutput(); err != nil {
+			log.Error("CreateReadOnlyLayer, tar error: " + err.Error())
+		}
+	}
+}
+
+func CreateWriteLayer(containerName string) {
+    //这里也变了
+	writeURL := fmt.Sprintf(Common.WriteLayerURL, containerName)
+    //注意是Mkdirall
+	if err := os.MkdirAll(writeURL, 0777); err != nil {
+		log.Debug("CreateWriteLayer, Mkdir error: " + err.Error())
+	}
+}
+
+func CreateMountPoint(containerName string, imageName string) {
+    //变化
+	mntURL := fmt.Sprintf(Common.MntPath, containerName)
+    //注意是Mkdirall
+	if err := os.MkdirAll(mntURL, 0777); err != nil {
+		log.Debug("CreateMountPoint, Mkdir mntURL error: " + err.Error())
+		return
+	}
+    //变化
+	tmpWriteURL := fmt.Sprintf(Common.WriteLayerURL, containerName)
+	tmpImageLocation := Common.RootPath + "/" + imageName
+
+	workdirURL := fmt.Sprintf(Common.WorkDirURL, containerName)
+    //注意是Mkdirall
+	if err := os.MkdirAll(workdirURL, 0777); err != nil {
+		log.Debug("CreateMountPoint, Mkdir Workdir error: " + err.Error())
+		return
+	}
+	//这里记得加上逗号
+	builder := strings.Builder{}
+	builder.WriteString("lowerdir=")
+	builder.WriteString(tmpImageLocation + ",")
+	builder.WriteString("upperdir=")
+	builder.WriteString(tmpWriteURL + ",")
+	builder.WriteString("workdir=")
+	builder.WriteString(workdirURL)
+
+	cmd := exec.Command("mount", "-t", "overlay", "overlay", "-o", builder.String(), mntURL)
+	log.Debug("CreateMountPoint, mount command: " + cmd.String())
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Error("CreateMountPoint, mount error: " + err.Error())
+		return
+	}
+}
+```
+
+到这里，这条链路就差不多完了。
+
+我们的修改也基本大功告成，剩下的就是重构我们的commit了！
+
+为什么要特别注明MkdirAll？因为我被这个Mkdir坑惨了，害我debug半天。
+
+哈哈，突然发现，我的commit和书上写的一样，不知道为啥，总之这样就能用了
+
+看看效果
+
+我们创建了一个容器，然后进去写入数据卷，然后出来将这个容器打包成镜像，随后启动这个镜像的容器，进入，发现容器打包成功，到这一步就大功告成了！
+
+![QQ_1743335473191](./assets/QQ_1743335473191.png)
+
+同时，当我们删除这些容器只会，数据卷也依旧存在，我们到这一步，基本的容器和镜像就已经完成了，此时，我们还需要进行最后一步，那就是加入环境变量，我们常用docker部署中间件的朋友们肯定不会陌生环境变量这几个字，无论在哪，每个容器都基本会存在环境变量这个东西来让我们自定义。
+
+### 4.6 **这是我最后的波纹，环境变量！!**
+
+到了这一步，一切都很简单了，只需要为run命令添加参数，注意，这里是字符串切片！
+
+```go
+		&cli.StringSliceFlag{
+			Name:  "e",
+			Usage: "Set environment variables for container",
+		},
+```
+
+然后看看我们的env是怎么传递的~
+
+```go
+func runAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container image name")
+		return errors.New("please specify a container image name")
+	}
+	var cmdArray []string
+	for i := 0; i < len(c.Args()); i++ {
+		cmdArray = append(cmdArray, c.Args()[i])
+	}
+	//此处拿到第一条参数
+	//此处是获取-ti的参数
+	tty := c.Bool("ti")
+	detch := c.Bool("d")
+	log.Debug("tty: " + strconv.FormatBool(tty) + " detch: " + strconv.FormatBool(detch))
+	if tty && detch {
+		fmt.Println("Please specify only one of -ti and -d")
+		log.Error("Please specify only one of -ti and -d")
+		return errors.New("please specify only one of -ti and -d")
+	}
+	resource := &cgroup.ResourceConfig{
+		MemoryLimit: c.String("m"),
+		CpuShares:   c.String("cpushare"),
+		CpuSet:      c.String("cpuset"),
+	}
+	volume := c.String("v")
+	containerName := c.String("name")
+    //获取参数
+	envSlice := c.StringSlice("e")
+	imageName := cmdArray[0]
+	cmdArray = cmdArray[1:]
+	re, _ := json.Marshal(resource)
+	log.Debug(string(re))
+    //向下传递envslice参数
+	Run(tty, cmdArray, resource, volume, containerName, imageName, envSlice)
+	return nil
+}
+```
+
+去看看Run函数变了啥
+
+```go
+parent, pipe := container.NewParentProcess(tty, volume, containerName, imageName, envSlice)
+```
+
+感觉太长了，就加了这一行，事实上，就是把我们的环境变量传递给NewParentProcess了，再去看看这个函数又变化了什么
+
+```go
+func NewParentProcess(tty bool, volume, containerName, imageName string, envSlice []string) (*exec.Cmd, *os.File) {
+	readPipe, writePipe, err := NewPipe()
+	if err != nil {
+		log.Error("NewParentProcess: Failed to create pipe: " + err.Error())
+		return nil, nil
+	}
+	cmd := exec.Command("/proc/self/exe", "init")
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWPID | syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWIPC | syscall.CLONE_NEWNET,
+		// syscall.CLONE_NEWUSER,
+		// UidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      0,
+		// 		Size:        1,
+		// 	},
+		// },
+		// GidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      1000,
+		// 		Size:        1,
+		// 	},
+		// },
+	}
+	if tty {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		dirURL := fmt.Sprintf(DEFAULTINFOLOCATION, containerName)
+		if err := os.MkdirAll(dirURL, 0622); err != nil {
+			log.Error("NewParentProcess: Failed to create directory: " + err.Error())
+			return nil, nil
+		}
+		stdLogFilePath := dirURL + CONTAINERLOGFILE
+		stdLogFile, err := os.Create(stdLogFilePath)
+		if err != nil {
+			log.Error("NewParentProcess: Failed to create log file: " + err.Error())
+			return nil, nil
+		}
+		cmd.Stdout = stdLogFile
+	}
+	cmd.ExtraFiles = []*os.File{readPipe}
+    //就变化了这一行，将env加入切片
+	cmd.Env = append(os.Environ(), envSlice...)
+	NewWorkSpace(imageName, containerName, volume)
+	cmd.Dir = fmt.Sprintf(Common.MntPath, containerName)
+	log.Info(fmt.Sprintf("Command: %v", cmd))
+	return cmd, writePipe
+}
+```
+
+是的，就这么简单，随后可以启动来测试一下环境变量是否能被正确设置吧！
+
+![QQ_1743336776494](./assets/QQ_1743336776494.png)
+
+完美。
+
+但是我们实际上还有一个问题没解决，就是我们启动后台容器的时候，在进入容器中，环境变量加载会有问题，所以我们需要手动加入！
+
+exec.go
+
+```go
+func getEnvsByPid(pid string) ([]string, error) {
+    //通过pid获取环境变量
+	path := fmt.Sprintf("/proc/%s/environ", pid)
+	contentBytes, err := os.ReadFile(path)
+	if err != nil {
+		log.Error("Failed to read environment variables of pid " + pid + " : " + err.Error())
+		return nil, err
+	}
+
+	envList := strings.Split(string(contentBytes), "\u0000")
+	return envList, nil
+}
+```
+
+然后修改我们的execCommand逻辑
+
+```go
+func execContainer(containerName string, cmdArray []string) {
+	pid, err := getPidByContainerName(containerName)
+	if err != nil {
+		log.Error("Failed to get pid by container name" + err.Error())
+		return
+	}
+	cmdStr := strings.Join(cmdArray, " ")
+	log.Info("Executing command in container " + containerName + " : " + cmdStr)
+	cmd := exec.Command("/proc/self/exe", "exec")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	os.Setenv(Common.ENV_EXEC_PID, pid)
+	os.Setenv(Common.ENV_EXEC_CMD, cmdStr)
+    //改动在这里！
+	env, err := getEnvsByPid(pid)
+	if err != nil {
+		log.Error("Failed to get environment variables of pid " + pid + " : " + err.Error())
+		return
+	}
+	cmd.Env = append(os.Environ(), env...)
+	if err := cmd.Run(); err != nil {
+		log.Error("Failed to execute command in container " + containerName + " : " + err.Error())
+	}
+}
+```
+
+效果如图：
+
+![QQ_1743337971649](./assets/QQ_1743337971649.png)
+
+到这里，我们的进阶容器的内容就彻底完成了。
+
+----
+
+## 5. **点动成线，让你的容器串联起来吧！**
 
