@@ -2553,6 +2553,11 @@ Run()
 
 ```go
 func Run(tty bool, cmdArray []string, resource *cgroup.ResourceConfig, volume, containerName, imageName string) {
+    //由于我们的containerName到这里的时候可能为空，所以这里先加上，防止挂载目录出现错误
+    //之后的Record就不需要判断了
+    if containerName == "" {
+		containerName = randStringBytes(12)
+	}
     //注意，这里传入了镜像的名称的新参数
 	parent, pipe := container.NewParentProcess(tty, volume, containerName, imageName)
 	if parent == nil {
@@ -2982,3 +2987,841 @@ func execContainer(containerName string, cmdArray []string) {
 
 ## 5. **点动成线，让你的容器串联起来吧！**
 
+看到这里，我很遗憾的告诉你，我虽然能够创建虚拟网络设备，并且能够在同一个网络中的容器间通信，但是却始终实现不了外部通信，得知了这件事，如果你愿意，可以继续看下去。
+
+首先，对于网络很陌生的同学们(我也很陌生)，我们大体的网络架构是这样的：一个端点，可以分配IP地址，然后借助网桥，我们可以进行通信，而借助IPAM，我们可以轻松的管理我们的IP地址。
+
+在这里，我会先将NetWork需要的代码全部敲出来，然后将其集成到我们的命令中，老样子，注释讲解
+
+Network/network.go
+
+```go
+var (
+    //存储我们的网络配置的地方
+	defaultNetworkPath = "/home/rinai/PROJECTS/Whalebox/network/network/"
+	drivers            = map[string]NetworkDriver{}
+	networks           = map[string]*Network{}
+)
+
+type Network struct {
+	Name    string
+	IpRange *net.IPNet
+	Driver  string
+}
+
+type Endpoint struct {
+	ID          string           `json:"id"`
+	Device      netlink.Veth     `json:"device"`
+	IPAddress   net.IP           `json:"ipAddress"`
+	MacAdress   net.HardwareAddr `json:"macAdress"`
+	PortMapping []string         `json:"portMapping"`
+	Network     *Network         `json:"network"`
+}
+//Driver是什么？
+//看到以下的接口，你应该就能够明白，Driver，指的就是网络驱动
+//能够管理我们的网络的信息
+type NetworkDriver interface {
+	Name() string
+	Create(subnet string, name string, driver string) (*Network, error)
+	Delete(network Network) error
+	Connect(*Network, *Endpoint) error
+	Disconnect(*Network, *Endpoint) error
+}
+//创建网络IP的入口
+func CreateNetwork(driver, subnet, name string) error {
+	_, cidr, _ := net.ParseCIDR(subnet)
+    //先分配一个IP，这里的结构体在后面会提到
+	ip, err := IpAllocator.Allocate(cidr)
+	if err != nil {
+		log.Error("Failed to allocate IP address for network " + name)
+		return err
+	}
+	cidr.IP = ip
+	log.Debug("Allocated IP address " + ip.String() + " for network " + name)
+    //跟网桥有关的创建，使其能够通信
+	nw, err := drivers[driver].Create(cidr.String(), name, driver)
+	if err != nil {
+		log.Error("Failed to create network " + name)
+		return err
+	}
+    //写入本地
+	return nw.dump(defaultNetworkPath)
+}
+//保存到本地磁盘
+func (nw *Network) dump(dumpPath string) error {
+	if _, err := os.Stat(dumpPath); err != nil {
+		if os.IsNotExist(err) {
+			log.Debug("Creating network directory " + dumpPath)
+			os.MkdirAll(dumpPath, 0755)
+		} else {
+			log.Error("Failed to check network directory " + dumpPath)
+			return err
+		}
+	}
+	nwPath := path.Join(dumpPath, nw.Name)
+	nwFile, err := os.OpenFile(nwPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Error("Failed to open network file " + nwPath)
+		return err
+	}
+	defer nwFile.Close()
+
+	nwJson, err := json.Marshal(nw)
+	if err != nil {
+		log.Error("Failed to marshal network " + nw.Name)
+		return err
+	}
+	_, err = nwFile.Write(nwJson)
+	if err != nil {
+		log.Error("Failed to write network file " + nwPath)
+		return err
+	}
+	return nil
+}
+
+//从本地磁盘加载网络的IP信息
+func (nw *Network) load(dumpPath string) error {
+	nwConfigFile, err := os.Open(dumpPath)
+	if err != nil {
+		log.Error("Failed to open network file " + dumpPath)
+		return err
+	}
+	defer nwConfigFile.Close()
+	nwJson := make([]byte, 1024)
+	n, err := nwConfigFile.Read(nwJson)
+	if err != nil {
+		log.Error("Failed to read network file " + dumpPath)
+		return err
+	}
+	err = json.Unmarshal(nwJson[:n], nw)
+	if err != nil {
+		log.Error("Failed to unmarshal network file " + dumpPath)
+		return err
+	}
+	return nil
+}
+//连接，使其能够通信
+func Connect(networkName string, cInfo *container.Container) error {
+	network, ok := networks[networkName]
+	if !ok {
+		log.Error("Network " + networkName + " not found")
+		return fmt.Errorf("Network %s not found", networkName)
+	}
+	ip, err := IpAllocator.Allocate(network.IpRange)
+	if err != nil {
+		log.Error("Failed to allocate IP address for container " + cInfo.Name)
+		return err
+	}
+	endpoint := Endpoint{
+		ID:          fmt.Sprintf("%s-%s", cInfo.Id, cInfo.Name),
+		IPAddress:   ip,
+		Network:     network,
+		PortMapping: cInfo.PortMapping,
+	}
+	//创建网桥
+	if err = drivers[network.Driver].Connect(network, &endpoint); err != nil {
+		log.Error("Failed to connect container " + cInfo.Name + " to network " + networkName)
+		return err
+	}
+    //真正的通信
+	if err = configEndpointIpAddressAndRoute(&endpoint, cInfo); err != nil {
+		log.Error("Failed to configure container " + cInfo.Name + " IP address and route")
+		return err
+	}
+	return configPortMapping(&endpoint)
+}
+//初始化，准备一些我们需要的信息
+func Init() error {
+	var bridgeDriver = &BridgeNetworkDriver{}
+	drivers[bridgeDriver.Name()] = bridgeDriver
+	if _, err := os.Stat(defaultNetworkPath); err != nil {
+		if os.IsNotExist(err) {
+			os.MkdirAll(defaultNetworkPath, 0644)
+		} else {
+			log.Error("Failed to check network directory " + defaultNetworkPath)
+			return err
+		}
+	}
+	filepath.Walk(defaultNetworkPath, func(nwPath string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		_, nwName := path.Split(nwPath)
+		nw := &Network{
+			Name: nwName,
+		}
+
+		if err = nw.load(nwPath); err != nil {
+			log.Error("Failed to load network " + nwName)
+			return err
+		}
+		networks[nw.Name] = nw
+		return nil
+	})
+	return nil
+}
+//列出所有的网络
+func ListNetworks() {
+	w := tabwriter.NewWriter(os.Stdout, 12, 1, 3, ' ', 0)
+	fmt.Fprintf(w, "Name\tIpRange\tDriver\n")
+
+	for _, nw := range networks {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", nw.Name, nw.IpRange.String(), nw.Driver)
+	}
+	if err := w.Flush(); err != nil {
+		log.Error("Failed to flush network list")
+	}
+}
+
+// 删除网络
+func DeleteNetwork(networkName string) error {
+	network, ok := networks[networkName]
+	if !ok {
+		log.Error("Network " + networkName + " not found")
+		return fmt.Errorf("Network %s not found", networkName)
+	}
+	if err := IpAllocator.Release(network.IpRange, &network.IpRange.IP); err != nil {
+		log.Error("Failed to release IP address for network " + networkName)
+		return err
+	}
+	if err := drivers[network.Driver].Delete(*network); err != nil {
+		log.Error("Failed to delete network " + networkName)
+		return err
+	}
+	return network.remove(defaultNetworkPath)
+}
+
+func (nw *Network) remove(dumpPath string) error {
+	nwPath := path.Join(dumpPath, nw.Name)
+	if _, err := os.Stat(nwPath); err != nil {
+		if os.IsNotExist(err) {
+			log.Debug("Network file " + nwPath + " not found")
+			return nil
+		} else {
+			log.Error("Failed to check network file " + nwPath)
+			return err
+		}
+	}
+	if err := os.Remove(nwPath); err != nil {
+		log.Error("Failed to remove network file " + nwPath)
+		return err
+	}
+	return nil
+}
+```
+
+这部分很多解释不清，原因是我自己也不是很理解。
+
+```go
+const ipamDefaultAllocatorPath = "/home/rinai/PROJECTS/Whalebox/network/ipam/subnet.json"
+
+// IPAM是一个存储IP地址分配信息的结构体
+type IPAM struct {
+	//存放IP地址分配信息的文件路径
+	SubnetAllocatorPath string
+	Subnets             *map[string]string
+}
+
+var IpAllocator = &IPAM{
+	SubnetAllocatorPath: ipamDefaultAllocatorPath,
+}
+//将被占用的ip信息加载到内存。
+func (ipam *IPAM) load() error {
+	if _, err := os.Stat(ipam.SubnetAllocatorPath); err != nil {
+		if os.IsNotExist(err) {
+			_, err = os.Create(ipam.SubnetAllocatorPath)
+			if err != nil {
+				log.Error("Failed to create subnet allocator file: " + err.Error())
+				return err
+			}
+		} else {
+			log.Error("Other error when checking subnet allocator file directory: " + err.Error())
+			return err
+		}
+	}
+	subnetConfigFile, err := os.Open(ipam.SubnetAllocatorPath)
+	if err != nil {
+		log.Error("Failed to open subnet allocator file for reading: " + err.Error())
+		return err
+	}
+	defer subnetConfigFile.Close()
+
+	subnetJson := make([]byte, 2000)
+	n, err := subnetConfigFile.Read(subnetJson)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(subnetJson[:n], ipam.Subnets)
+	if err != nil {
+		log.Error("Failed to unmarshal subnets from json: " + err.Error())
+		return err
+	}
+	log.Debug(fmt.Sprintf("Loaded subnets: %v", *ipam.Subnets))
+	return nil
+}
+
+// 保存IP地址分配信息到文件
+func (ipam *IPAM) dump() error {
+	ipamConfigFileDir, _ := path.Split(ipam.SubnetAllocatorPath)
+	if _, err := os.Stat(ipamConfigFileDir); err != nil {
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(ipamConfigFileDir, 0755)
+			if err != nil {
+				log.Error("Failed to mkdir for subnet allocator file: " + err.Error())
+				return err
+			}
+		} else {
+			log.Error("Other error when checking subnet allocator file directory: " + err.Error())
+			return err
+		}
+	}
+	subnetConfigFile, err := os.OpenFile(ipam.SubnetAllocatorPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Error("Failed to open subnet allocator file for writing: " + err.Error())
+		return err
+	}
+	defer subnetConfigFile.Close()
+
+	ipamJson, err := json.Marshal(ipam.Subnets)
+	if err != nil {
+		log.Error("Failed to marshal subnets to json: " + err.Error())
+		return err
+	}
+	_, err = subnetConfigFile.Write(ipamJson)
+	if err != nil {
+		log.Error("Failed to write subnets to file: " + err.Error())
+		return err
+	}
+	return nil
+}
+
+// 分配IP地址
+func (ipam *IPAM) Allocate(subnet *net.IPNet) (ip net.IP, err error) {
+	ipam.Subnets = &map[string]string{}
+	if err := ipam.load(); err != nil {
+		log.Error("Failed to load subnet allocator file: " + err.Error())
+	}
+	_, subnet, _ = net.ParseCIDR(subnet.String())
+	one, size := subnet.Mask.Size()
+	if _, exist := (*ipam.Subnets)[subnet.String()]; !exist {
+		(*ipam.Subnets)[subnet.String()] = strings.Repeat("0", 1<<uint8(size-one))
+	}
+	//遍历子网的每个IP地址
+	for c := range (*ipam.Subnets)[subnet.String()] {
+		//c并不表示ip地址本身，而是一个索引，如果为0，表示该IP地址未分配，可以分配
+		//此处使用位图的方式来表示每个IP地址的分配情况。
+		if (*ipam.Subnets)[subnet.String()][c] == '0' {
+			ipalloc := []byte((*ipam.Subnets)[subnet.String()])
+			//为1，表示该IP地址已分配。
+			log.Debug(fmt.Sprintf("Allocating IP offset: %v", c))
+			ipalloc[c] = '1'
+			(*ipam.Subnets)[subnet.String()] = string(ipalloc)
+			ip = subnet.IP
+			//通过偏移量计算出IP地址
+			for t := uint(4); t > 0; t-- {
+				[]byte(ip)[4-t] += uint8(c >> ((t - 1) * 8))
+			}
+			ip[3] += 1
+			break
+		}
+	}
+	//保存IP地址分配信息到文件
+	ipam.dump()
+	return
+}
+
+// 释放IP地址
+func (ipam *IPAM) Release(subnet *net.IPNet, ipaddr *net.IP) error {
+	ipam.Subnets = &map[string]string{}
+
+	_, subnet, _ = net.ParseCIDR(subnet.String())
+
+	err := ipam.load()
+	if err != nil {
+		log.Error("Failed to load subnet allocator file: " + err.Error())
+	}
+	c := 0
+	//四个字节表示方式
+	releaseIP := ipaddr.To4()
+	releaseIP[3]--
+	//通过偏移量计算出索引
+	for t := uint(4); t > 0; t-- {
+		c += int(releaseIP[t-1]-subnet.IP[t-1]) << ((4 - t) * 8)
+	}
+	log.Debug(fmt.Sprintf("map: %v", (*ipam.Subnets)[subnet.String()]))
+	log.Debug(fmt.Sprintf("offset: %d", c))
+	ipalloc := []byte((*ipam.Subnets)[subnet.String()])
+	ipalloc[c] = '0'
+	(*ipam.Subnets)[subnet.String()] = string(ipalloc)
+	//保存IP地址分配信息到文件
+	ipam.dump()
+	return nil
+}
+```
+
+
+
+```go
+type BridgeNetworkDriver struct{}
+
+// Delete implements NetworkDriver.
+func (d *BridgeNetworkDriver) Delete(network Network) error {
+	bridgeName := network.Name
+
+	br, err := netlink.LinkByName(bridgeName)
+	if err != nil {
+		log.Error("Failed to get bridge: " + bridgeName + " error: " + err.Error())
+		return err
+	}
+	return netlink.LinkDel(br)
+}
+
+// Disconnect implements NetworkDriver.
+func (d *BridgeNetworkDriver) Disconnect(*Network, *Endpoint) error {
+	return nil
+}
+
+func (d *BridgeNetworkDriver) Name() string {
+	return "bridge"
+}
+
+var _ NetworkDriver = &BridgeNetworkDriver{}
+
+func (d *BridgeNetworkDriver) Create(subnet, name, driver string) (*Network, error) {
+	ip, iprange, _ := net.ParseCIDR(subnet)
+	iprange.IP = ip
+	n := &Network{
+		Name:    name,
+		IpRange: iprange,
+		Driver:  driver,
+	}
+
+	err := d.initBridge(n)
+	if err != nil {
+		log.Error("Failed to create bridge network" + err.Error())
+		return nil, err
+	}
+	return n, nil
+}
+
+func (d *BridgeNetworkDriver) initBridge(n *Network) error {
+	log.Debug("Initializing bridge network")
+	bridgeName := n.Name
+	if err := createBridgeInterface(bridgeName); err != nil {
+		log.Error("Failed to create bridge" + err.Error())
+		return err
+	}
+	gatewayIP := *n.IpRange
+	gatewayIP.IP = n.IpRange.IP
+	if err := setInterfaceIP(bridgeName, gatewayIP.String()); err != nil {
+		log.Error("Failed to assign Address: " + gatewayIP.String() + " to bridge: " + bridgeName + " error: " + err.Error())
+		return err
+	}
+	if err := setInterfaceUp(bridgeName); err != nil {
+		log.Error("Failed to set bridge up: " + bridgeName + " error: " + err.Error())
+		return err
+	}
+	if err := setupIPTables(bridgeName, n.IpRange); err != nil {
+		log.Error("Failed to setup IPTables for bridge: " + bridgeName + " error: " + err.Error())
+		return err
+	}
+	return nil
+}
+
+func setInterfaceIP(name string, rawip string) error {
+	iface, err := netlink.LinkByName(name)
+	if err != nil {
+		log.Error("Failed to get interface: " + name + " error: " + err.Error())
+		return err
+	}
+	ipNet, err := netlink.ParseIPNet(rawip)
+	if err != nil {
+		log.Error("Failed to parse IPNet: " + rawip + " error: " + err.Error())
+		return err
+	}
+	addr := &netlink.Addr{IPNet: ipNet, Peer: ipNet, Label: "", Flags: 0, Scope: 0, Broadcast: nil}
+	return netlink.AddrAdd(iface, addr)
+
+}
+
+func setInterfaceUp(interfaceName string) error {
+	iface, err := netlink.LinkByName(interfaceName)
+	if err != nil {
+		log.Error("Failed to get interface: " + interfaceName + " error: " + err.Error())
+		return err
+	}
+
+	//通过linksetup设置接口状态为up
+	if err := netlink.LinkSetUp(iface); err != nil {
+		log.Error("Failed to set interface up: " + interfaceName + " error: " + err.Error())
+		return err
+	}
+	return nil
+}
+
+func setupIPTables(bridgeName string, subnet *net.IPNet) error {
+	iptablecmd := fmt.Sprintf("-t nat -A POSTROUTING -s %s ! -o %s -j MASQUERADE", subnet.String(), bridgeName)
+	cmd := exec.Command("iptables", strings.Split(iptablecmd, " ")...)
+	output, err := cmd.Output()
+	if err != nil {
+		log.Error("Failed to setup IPTables for bridge: " + bridgeName + " error: " + err.Error() + " output: " + string(output))
+		return err
+	}
+	log.Info("IPTables setup for bridge: " + bridgeName + " output: " + string(output))
+	return nil
+}
+
+func createBridgeInterface(bridgeName string) error {
+	_, err := net.InterfaceByName(bridgeName)
+	if err == nil {
+		log.Info("Bridge interface already exists: " + bridgeName)
+		return nil
+	}
+	if strings.Contains(err.Error(), "no such network interface") {
+		log.Info("Creating bridge interface: " + bridgeName)
+	} else {
+		log.Error("Failed to get bridge interface: " + bridgeName + " error: " + err.Error())
+		return err
+	}
+
+	la := netlink.NewLinkAttrs()
+	la.Name = bridgeName
+
+	br := &netlink.Bridge{LinkAttrs: la}
+	if err := netlink.LinkAdd(br); err != nil {
+		log.Error("Failed to create bridge interface: " + bridgeName + " error: " + err.Error())
+		return fmt.Errorf("bridge creation failed for bridge %s: %v", bridgeName, err)
+	}
+	return nil
+}
+
+func (d *BridgeNetworkDriver) Connect(n *Network, endpoint *Endpoint) error {
+	bridgeName := n.Name
+	//通过名字获取网桥
+	br, err := netlink.LinkByName(bridgeName)
+	if err != nil {
+		log.Error("Failed to get bridge: " + bridgeName + " error: " + err.Error())
+		return err
+	}
+	//创建veth pair
+	la := netlink.NewLinkAttrs()
+	la.Name = endpoint.ID[:5]
+	la.MasterIndex = br.Attrs().Index
+
+	endpoint.Device = netlink.Veth{
+		LinkAttrs: la,
+		PeerName:  "cif-" + endpoint.ID[:5],
+	}
+
+	if err := netlink.LinkAdd(&endpoint.Device); err != nil {
+		log.Error("Failed to add endpoint device: " + endpoint.ID + " error: " + err.Error())
+		return err
+	}
+	if err := netlink.LinkSetUp(&endpoint.Device); err != nil {
+		log.Error("Failed to set endpoint device up: " + endpoint.ID + " error: " + err.Error())
+		return err
+	}
+	return nil
+}
+
+// 真正的插上网线
+func configEndpointIpAddressAndRoute(endpoint *Endpoint, cinfo *container.Container) error {
+	peerLink, err := netlink.LinkByName(endpoint.Device.PeerName)
+	if err != nil {
+		log.Error("Failed to get peer link: " + endpoint.Device.PeerName + " error: " + err.Error())
+		return err
+	}
+
+	defer enterContainerNamespace(&peerLink, cinfo)()
+
+	interfaceIP := *endpoint.Network.IpRange
+	interfaceIP.IP = endpoint.IPAddress
+	//设置接口
+	if err = setInterfaceIP(endpoint.Device.PeerName, interfaceIP.String()); err != nil {
+		log.Error("Failed to assign Address: " + interfaceIP.String() + " to endpoint: " + endpoint.ID + " error: " + err.Error())
+		return err
+	}
+	//启动接口，使其能够正常通信，但是实际上不行
+	if err = setInterfaceUp(endpoint.Device.PeerName); err != nil {
+		log.Error("Failed to set endpoint up: " + endpoint.ID + " error: " + err.Error())
+		return err
+	}
+	//"lo"是回环设备，用于容器内部的网络通信，这里确实能够实现他的功能
+	if err = setInterfaceUp("lo"); err != nil {
+		log.Error("Failed to set lo up: " + err.Error())
+		return err
+	}
+	_, cidr, _ := net.ParseCIDR("0.0.0.0/0")
+	defaultRoute := &netlink.Route{
+		LinkIndex: peerLink.Attrs().Index,
+		Dst:       cidr,
+		Gw:        endpoint.Network.IpRange.IP,
+	}
+	if err := netlink.RouteAdd(defaultRoute); err != nil {
+		log.Error("Failed to add default route to endpoint: " + endpoint.ID + " error: " + err.Error())
+		return err
+	}
+	return nil
+}
+//进入到network命名空间
+func enterContainerNamespace(link *netlink.Link, cinfo *container.Container) func() {
+	log.Debug("Entering container namespace")
+	f, err := os.OpenFile(fmt.Sprintf("/proc/%s/ns/net", cinfo.Pid), os.O_RDONLY, 0)
+	if err != nil {
+		log.Error("Failed to open container netns: " + err.Error())
+		return func() {}
+	}
+	nsFD := f.Fd()
+
+	runtime.LockOSThread()
+
+	if err := netlink.LinkSetNsFd(*link, int(nsFD)); err != nil {
+		log.Error("Failed to set link netns: " + err.Error())
+		return func() {}
+	}
+	//获取namespace，方便关闭
+	origns, err := netns.Get()
+	if err != nil {
+		log.Error("Failed to get current netns: " + err.Error())
+		return func() {}
+	}
+
+	if err = netns.Set(netns.NsHandle(nsFD)); err != nil {
+		log.Error("Failed to set netns: " + err.Error())
+		return func() {}
+	}
+
+	return func() {
+		netns.Set(origns)
+		origns.Close()
+		runtime.UnlockOSThread()
+		f.Close()
+	}
+}
+//将宿主机的外部端口接受的信息转发到容器
+//但是这里感觉有问题，因为实操事实上是无法执行的。
+func configPortMapping(endpoint *Endpoint) error {
+	for _, mapping := range endpoint.PortMapping {
+		port := strings.Split(mapping, ":")
+		if len(port) != 2 {
+			log.Error("Invalid port mapping: " + mapping)
+			continue
+		}
+		log.Debug("Configuring port mapping: " + mapping + " for endpoint: " + endpoint.IPAddress.String())
+		iptablescmd := fmt.Sprintf("-t nat -A PREROUTING -p tcp -m tcp --dport %s -j DNAT --to-destination %s:%s", port[0], endpoint.IPAddress.String(), port[1])
+		cmd := exec.Command("iptables", strings.Split(iptablescmd, " ")...)
+		output, err := cmd.Output()
+		if err != nil {
+			log.Error("Failed to setup port mapping for endpoint: " + endpoint.ID + " error: " + err.Error() + " output: " + string(output))
+			continue
+		}
+		log.Info("Port mapping setup for endpoint: " + endpoint.ID + " output: " + string(output))
+	}
+	return nil
+}
+
+```
+
+以上代码能够实现容器间的通信，但是无法与容器外部进行通信，这也算一个遗憾吧，Debug了很久，源代码看了一遍又一遍，可惜还是没能实现出来。
+
+下面看看剩下的命令代码吧！
+
+```go
+var networkCommand = cli.Command{
+	Name:  "network",
+	Usage: "container network commands",
+	Subcommands: []cli.Command{
+		NetworkCreateCommand,
+		ListNetWorkCommand,
+		RemoveNetworkCommand,
+	},
+}
+
+var NetworkCreateCommand = cli.Command{
+	Name:  "create",
+	Usage: "create a container network",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "driver",
+			Usage: "network driver",
+		},
+		cli.StringFlag{
+			Name:  "subnet",
+			Usage: "subnet cidr",
+		},
+	},
+	Action: CreateNetworkAction,
+}
+
+var ListNetWorkCommand = cli.Command{
+	Name:   "list",
+	Usage:  "list container network",
+	Action: ListNetworkAction,
+}
+
+var RemoveNetworkCommand = cli.Command{
+	Name:   "remove",
+	Usage:  "remove container network",
+	Action: RemoveNetworkAction,
+}
+```
+
+此处，network有三个子命令，分别是创建，列表，删除。
+
+下面是具体实现
+
+```go
+func CreateNetworkAction(context *cli.Context) error {
+	if len(context.Args()) < 1 {
+		return fmt.Errorf("please provide network name")
+	}
+	network.Init()
+	err := network.CreateNetwork(context.String("driver"), context.String("subnet"), context.Args()[0])
+	if err != nil {
+		return fmt.Errorf("create network error: %+v", err)
+	}
+	return nil
+}
+
+func ListNetworkAction(context *cli.Context) error {
+	network.Init()
+	network.ListNetworks()
+	return nil
+}
+
+func RemoveNetworkAction(context *cli.Context) error {
+	if len(context.Args()) < 1 {
+		return fmt.Errorf("please provide network name")
+	}
+	network.Init()
+	err := network.DeleteNetwork(context.Args()[0])
+	if err != nil {
+		return fmt.Errorf("remove network error: %+v", err)
+	}
+	return nil
+}
+```
+
+到这里，命令也算结束
+
+此时，我们的run命令还需要做一些修改
+
+添加两个flag
+
+```go
+		&cli.StringSliceFlag{
+			Name:  "p",
+			Usage: "Publish a container's port to the host",
+		},
+		&cli.StringFlag{
+			Name:  "net",
+			Usage: "Set network mode for container",
+		},
+```
+
+runAction：
+
+```go
+func runAction(c *cli.Context) error {
+	if len(c.Args()) < 1 {
+		log.Error("Please specify a container image name")
+		return errors.New("please specify a container image name")
+	}
+	var cmdArray []string
+	for i := 0; i < len(c.Args()); i++ {
+		cmdArray = append(cmdArray, c.Args()[i])
+	}
+	//此处拿到第一条参数
+	//此处是获取-ti的参数
+	tty := c.Bool("ti")
+	detch := c.Bool("d")
+	log.Debug("tty: " + strconv.FormatBool(tty) + " detch: " + strconv.FormatBool(detch))
+	if tty && detch {
+		fmt.Println("Please specify only one of -ti and -d")
+		log.Error("Please specify only one of -ti and -d")
+		return errors.New("please specify only one of -ti and -d")
+	}
+	resource := &cgroup.ResourceConfig{
+		MemoryLimit: c.String("m"),
+		CpuShares:   c.String("cpushare"),
+		CpuSet:      c.String("cpuset"),
+	}
+	volume := c.String("v")
+	containerName := c.String("name")
+	envSlice := c.StringSlice("e")
+    //提取端口和网络信息
+	port := c.StringSlice("p")
+	network := c.String("net")
+	imageName := cmdArray[0]
+	cmdArray = cmdArray[1:]
+	re, _ := json.Marshal(resource)
+	log.Debug(string(re))
+    //传入参数
+	Run(tty, cmdArray, resource, volume, containerName, imageName, envSlice, port, network)
+	return nil
+}
+```
+
+回到我们的Run函数，这真的是最后一步了！
+```go
+func Run(tty bool, cmdArray []string, resource *cgroup.ResourceConfig, volume, containerName, imageName string, envSlice []string, port []string, networkName string) {
+	containerID := randStringBytes(12)
+	if containerName == "" {
+		containerName = containerID
+	}
+	parent, pipe := container.NewParentProcess(tty, volume, containerName, imageName, envSlice)
+	if parent == nil {
+		log.Error("Failed to create parent process")
+		return
+	}
+	if err := parent.Start(); err != nil {
+		log.Error(err.Error())
+		return
+	}
+	fmt.Println("Container started, pid: ", parent.Process.Pid)
+	containerName, err := RecordContainerInfo(parent.Process.Pid, cmdArray, containerName, containerID, volume, imageName)
+	if err != nil {
+		log.Error("Record container info error" + err.Error())
+		return
+	}
+	cgroupManager := cgroup.NewCgroup("whalebox", strconv.Itoa(parent.Process.Pid))
+	cgroupManager.Set(resource)
+	if networkName != "" {
+		// 初始化网络
+		network.Init()
+		containerInfo := &container.Container{
+			Id:          containerID,
+			Pid:         strconv.Itoa(parent.Process.Pid),
+			Name:        containerName,
+			PortMapping: port,
+		}
+		// 连接网络
+		if err := network.Connect(networkName, containerInfo); err != nil {
+			log.Error("Error Connect Network: " + err.Error())
+			return
+		}
+	}
+	sendInitCommand(cmdArray, pipe)
+	if tty {
+		parent.Wait()
+		deleteContainerInfo(containerName)
+		container.DeleteWorkSpace(containerName, volume)
+		cgroupManager.Remove()
+	}
+	os.Exit(0)
+}
+```
+
+完结撒花！
+
+最后，让我们看看我们的成功，当然这里仅限于容器间的通信。
+
+![QQ_1743421652158](./assets/QQ_1743421652158.png)
+
+我们会发现，真的做到了容器间的通信！
+
+到这里，本文就真的完结了！！！！
+
+----
+
+Fin
