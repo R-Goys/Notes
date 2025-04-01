@@ -40,3 +40,44 @@ func generateMatrix(n int) [][]int {
 }
 ```
 
+二刷
+
+```go
+func generateMatrix(n int) [][]int {
+    left, right, top, base := 0, n - 1, 0, n - 1
+    i, j := 0, -1
+    idx := 1
+    ans := make([][]int, n)
+    for k := 0; k < n; k ++ {
+        ans[k] = make([]int, n)
+    }
+    for left <= right {      
+        for j < right {
+           j ++
+           ans[i][j] = idx
+           idx ++
+        }
+        top ++
+        for i < base {
+            i ++
+            ans[i][j] = idx
+            idx ++
+        }
+        right--
+        for j > left {
+            j --
+            ans[i][j] = idx
+            idx ++
+        }
+        base --
+        for i > top {
+            i --
+            ans[i][j] = idx
+            idx ++
+        }
+        left ++
+    }
+    return ans
+}
+```
+
