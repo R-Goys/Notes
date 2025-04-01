@@ -55,3 +55,49 @@ func jump(nums []int) int {
 }
 ```
 
+----
+
+二刷
+
+```go
+func jump(nums []int) int {
+    i, ans := 0, 0
+    for i < len(nums) - 1 {
+        maxStep, offset := 0, 0
+        for j := 1; j <= nums[i]; j ++ {
+            if i + j >= len(nums) - 1 {
+                return ans + 1
+            }
+            if maxStep < nums[i + j] {
+                maxStep = nums[i + j]
+                offset = j
+            }
+            //这里是为了保证每次步数正常更新
+            maxStep --
+        }
+        i += offset
+        ans ++
+    }
+    return ans
+}
+```
+
+另一种方法：
+
+```go
+func jump(nums []int) int {
+    end := 0
+    ans := 0
+    MaxStep := 0
+    //注意，到达最后一个位置的时候就可以结束循环了。
+    for i := 0; i < len(nums) - 1; i ++ {
+        MaxStep = max(MaxStep, nums[i] + i)
+        if end == i {
+            end = MaxStep
+            ans ++
+        }
+    }
+    return ans
+}
+```
+
