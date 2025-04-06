@@ -23,3 +23,23 @@ func findDuplicate(nums []int) int {
 ```
 
 建立一条有向边 **i->nums[i]** 判断是否存在自环,很棒的思想
+
+---
+
+**二刷**
+
+这道题的重点在于如何将这个数组抽象成一个带环的链表，然后使用快慢指针就可以了，当我们将其抽象为带环的链表之后，我们就可以沿用判断环形链表相同的方法了。
+
+```go
+func findDuplicate(nums []int) int {
+    slow, fast := 0, 0
+    for slow, fast = nums[slow], nums[nums[fast]]; slow != fast; slow, fast = nums[slow], nums[nums[fast]] {}
+    slow = 0
+    for slow != fast {
+        slow = nums[slow]
+        fast = nums[fast]
+    }
+    return slow
+}
+```
+

@@ -216,3 +216,148 @@ void primes(int old_pipe[2]) {
 
 ---
 
+## 4. Find
+
+实验hint，让我们可以从ls.c中知道怎么才可以展开当前目录，这部分完全是参考了ls.c里面的方法，知道了这一点，我们就很好做判断了。
+
+```c
+#include "kernel/types.h"
+#include "kernel/stat.h"
+#include "user/user.h"
+#include "kernel/fs.h"
+
+void find(char *path, char *filename);
+
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        fprintf(2, "Usage: find filename with path\n");
+        exit(1);
+    }
+    //递归搜索
+    find(argv[1], argv[2]);
+    exit(0);
+    
+}
+
+void find(char *path, char *filename) {
+    char buf[512], *p;
+    int fd;
+    struct dirent de;
+    struct stat st;
+
+    if ((fd = open(path, 0)) < 0) {
+        fprintf(2, "find: cannot open %s\n", path);
+        return;
+    }
+    if (fstat(fd, &st) < 0) {
+        fprintf(2, "find: cannot stat %s\n", path);
+        close(fd);
+        return;
+    }
+    switch (st.type) {
+        case T_DIR:
+            if (strlen(path) + 1 + DIRSIZ + 1 >= sizeof(buf)) {
+                printf("find: path too long\n");
+                break;
+            }
+            strcpy(buf, path);
+            p = buf + strlen(buf);
+            *p++ = '/';
+            while (read(fd, &de, sizeof(de)) == sizeof(de)) {
+                if (de.inum == 0)
+                    continue;
+                memmove(p, de.name, DIRSIZ);
+                p[DIRSIZ] = 0;
+                if (stat(buf, &st) < 0) {
+                    printf("find: cannot stat %s\n", buf);
+                    continue;
+                }
+                if (st.type == T_FILE && strcmp(de.name, filename) == 0) {
+                    printf("%s\n", buf);
+                }
+                if (st.type == T_DIR && strcmp(de.name, ".") != 0 && strcmp(de.name, "..") != 0) {
+                    find(buf, filename);
+                }
+            }
+            break;
+        default:
+            if (strcmp(path, filename) == 0) {
+                printf("%s\n", path);
+            }
+        }
+    close(fd);
+}
+```
+
+这里有一个很有意思很有意思的东西，我直接跳转到read的实现，实际上但是他会直接跳到qemu的文件里面，导致我以为我们的read是qemu封装好的，但是实际上并不是，read确确实实我们的xv6自己实现的！我们可以通过这样去追溯它的根源：
+
+> 1. 在/user/usys.S中，找到有关read的字段，可以看见，它调用了SYS_read。
+> 2. 回到/kernel/syscall.c，我们可以看见syscall_read的具体定义。
+> 3. 跳转，我们会发现，调用了fileread这个函数，继续跳转
+> 4. 在这里，会调用一个至关重要的函数，就是read()
+> 5. 跳转到这个函数里面，read就是我们读取数据的关键函数
+
+嗯。。这个函数还是蛮复杂的，先做下一个实验吧
+
+---
+
+## 5. Xargs
+
+我没用过xargs，最开始可以说是一头雾水，包括最开始做的时候，甚至还不知道可以传递多行参数，改了半天。
+
+整体思路就是先将当前右侧的参数读取，然后循环从标准输入中读取数据，遇到换行符，则执行命令，然后重置当前的参数和缓冲区为初始状态。
+
+```c
+#include "kernel/types.h"
+#include "user/user.h"
+#include "kernel/param.h"
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        fprintf(2, "Usage: xargs command [args...]\n");
+        exit(1);
+    }dd
+    char *cmd = argv[1];
+    char *args[MAXARG];
+    int i, n = 0;
+
+    // 复制参数
+    for (i = 1; i < argc && n < MAXARG - 1; i++) {
+        args[n++] = argv[i];
+    }
+    int end = n;
+    //方便重置索引
+    char buf[512];
+    int m = 0;
+    while (read(0, &buf[m], 1) == 1) {
+        if (buf[m] == '\n') {
+            buf[m] = 0;
+            args[n++] = &buf[0];
+
+            // 参数必须以 NULL 结尾
+            args[n] = 0;
+
+            int fd = fork();
+            if (fd == 0) {
+                exec(cmd, args);
+                fprintf(2, "xargs: exec failed\n");
+                exit(1);
+            }
+            wait(0);
+
+            // 索引重置
+            m = 0;
+            n = end;
+        } else {
+            m++;
+        }
+    }
+    exit(0);
+}
+```
+
+---
+
+lab1给我感觉倒是没有太多关于os的知识，更多的是需要你去熟悉这个xv6的大体是什么样的，给他添加一些组件。
+
+目前来看，收获更多的还得是xv6的教科书，那里面确实能够学到很多东西。
