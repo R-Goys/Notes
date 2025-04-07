@@ -316,7 +316,7 @@ int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(2, "Usage: xargs command [args...]\n");
         exit(1);
-    }dd
+    }
     char *cmd = argv[1];
     char *args[MAXARG];
     int i, n = 0;
@@ -360,4 +360,4 @@ int main(int argc, char *argv[]) {
 
 lab1给我感觉倒是没有太多关于os的知识，更多的是需要你去熟悉这个xv6的大体是什么样的，给他添加一些组件。
 
-目前来看，收获更多的还得是xv6的教科书，那里面确实能够学到很多东西。
+目前来看，收获更多的还得是xv6的教科书，那里面确实能够学到很多东西，给我的感觉就是比其他我看过的任何操作系统课对小白都要友好得多。
