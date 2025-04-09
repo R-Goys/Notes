@@ -76,3 +76,32 @@ func longestPalindrome(s string) string {
 
 ---
 
+二刷，ok
+
+```go
+func longestPalindrome(s string) string {
+    n := len(s)
+    f := make([][]bool, n)
+    for i := 0; i < n; i ++ {
+        f[i] = make([]bool, n)
+        f[i][i] = true
+    }
+    MaxL, MaxR := 0, 1
+    for i := 1; i < n; i ++ {
+        for j := i - 1; j >= 0; j -- {
+            if s[i] == s[j] {
+                if i == j + 1 {
+                    f[i][j] = true
+                } else {
+                    f[i][j] = f[i - 1][j + 1]
+                }
+                if i - j + 1 > MaxR - MaxL && f[i][j] {
+                    MaxL, MaxR = j, i + 1
+                }
+            }
+        }
+    }
+    return s[MaxL: MaxR]
+}
+```
+
