@@ -413,6 +413,8 @@ void PRINT(pagetable_t pagetable, int level, uint64 va) {
 
 ## 4. Use superpages
 
+这个实验真的比较难下手，虽然看提示还是能够写出来一点，但是有的东西我真的难写出来😶‍🌫️，这个实验在后面的很多都是参考了别人的博客的。
+
 首先，superpage，其实就是在需求的内存比较大的时候，直接分配一个大页，也不是很多个页，而我们正要去实现这个大页分配的功能。
 
 随后，我们可以查看hint中提醒我们去看看super_test：
@@ -579,6 +581,365 @@ freerange(void *pa_start, void *pa_end)
 #define PHYSTOP (KERNBASE + 128*1024*1024)
 // 这里最多提供12个超级页，虽然实际上是无法提供这么多的，因为内核代码占了一部分。
 // 防止分配太多把普通页表的空间占完了
-#define SUPERBASE (PHYSTOP + 512 * PGSIZE * 12)
+#define SUPERBASE (KERNBASE + 512 * PGSIZE * 12)
 ```
+
+我们添加了一个SUPERBASE字段，表示在普通页的空间中分配12个超级页。
+
+随后，我们根据规定的范围去修改我们的kinit相关的函数：
+
+```c
+struct {
+  struct spinlock lock;
+  struct run *freelist;
+} kmem, supermem;
+// 为链表新增超级页实例
+
+void
+kinit()
+{
+  initlock(&kmem.lock, "kmem");
+  freerange(end, (void*)SUPERBASE);
+  superinit();
+  // 这里的end是内核结束的地方，之后直到SUPERBASE都是普通页表可以分配的空间
+  // 而SUPERBASE到PHYSTOP是超级页表可以分配的空间
+}
+
+void
+freerange(void *pa_start, void *pa_end)
+{
+  char *p;
+  p = (char*)PGROUNDUP((uint64)pa_start);
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+    kfree(p);
+}
+
+// 新增的init函数，初始化超级页的空闲链表
+void superinit(){
+  initlock(&supermem.lock, "supermem");
+  char *p;
+  p = (char*)SUPERPGROUNDUP((uint64)SUPERBASE);
+  for(; p + SUPERPGSIZE <= (char*)PHYSTOP; p += SUPERPGSIZE)
+    superfree(p);
+}
+
+// 超级页的释放，直接根据kfree照葫芦画瓢就行了。
+void superfree(void *pa) {
+  struct run *r;
+  // 改成超级页的尺寸，定义在SUPERPGSIZE， 这里爆红是正常的
+  if(((uint64)pa % SUPERPGSIZE) != 0 || (char*)pa < SUPERBASE || (uint64)pa >= PHYSTOP)
+    panic("superfree");
+  // memset，将内存为都置1，表示处于空闲中
+  memset(pa, 1, SUPERPGSIZE);
+  
+  r = (struct run*)pa;
+  // 加锁，保证链表插入顺序
+  acquire(&supermem.lock);
+  r->next = supermem.freelist;
+  supermem.freelist = r;
+  release(&supermem.lock);
+}
+```
+
+接下来，我们还需要为超级页添加实现分配的函数，总体的superpage的流程，大多都需要以普通页的分配释放映射为参考，而这里，其实就是kalloc换个皮：
+
+```c
+void* superalloc(void) {
+  struct run *r;
+  // 获取锁
+  acquire(&supermem.lock);
+  r = supermem.freelist;
+  if(r)
+    // 更新空闲页链表
+    supermem.freelist = r->next;
+  release(&supermem.lock);
+
+  if(r)
+    memset((char*)r, 5, SUPERPGSIZE); // fill with junk
+  return (void*)r; 
+}
+```
+
+这样，最底层需要被用到的函数就完成了，而sbrk在中间还会调用growproc，在其中调用vmmalloc为我们的进程分配内存，此处，就需要修改我们的uvmalloc，当需要的内存过大时，分配超级页，但是值得注意的一点是，我们分配过程中肯定需要进行内存对齐，由于超级页实在是太大了，肯定会非常浪费空间，所以我们应当先将对齐需要浪费的内存空间给利用起来。
+
+```c
+uint64
+uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
+{
+  char *mem;
+  uint64 a; 
+  int sz; 
+    
+  if(newsz < oldsz)
+    return oldsz;
+    
+  oldsz = PGROUNDUP(oldsz);
+  // 利用超级页对其所浪费的空间
+  for(a = oldsz; a < SUPERPGROUNDUP(oldsz) && a < newsz; a += sz){
+    sz = PGSIZE; 
+    mem = kalloc(); 
+    if(mem == 0){
+      uvmdealloc(pagetable, a, oldsz); 
+      return 0;
+    }
+#ifndef LAB_SYSCALL
+    memset(mem, 0, sz);
+#endif
+    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
+      kfree(mem);
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+  }
+  // 第二步：尽可能使用超级页批量分配，提升性能并减少页表开销
+  // 之所以加上 a + SUPERPGSIZE < newsz 的条件，是为了尽可能少地浪费内存
+  for(; a + SUPERPGSIZE < newsz; a += sz){
+    sz = SUPERPGSIZE; 
+    mem = superalloc(); 
+    if(mem == 0){
+      break;
+    }
+#ifndef LAB_SYSCALL
+    memset(mem, 0, sz);
+#endif
+    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
+      superfree(mem);
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+  }
+  // 第三步：对剩下不足一个超级页的部分用普通页补齐
+  for(; a < newsz; a += sz){
+    sz = PGSIZE;
+    mem = kalloc();
+    if(mem == 0){
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+#ifndef LAB_SYSCALL
+    memset(mem, 0, sz);
+#endif
+    if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
+      kfree(mem);
+      uvmdealloc(pagetable, a, oldsz);
+      return 0;
+    }
+  }
+  // 返回新分配完成后的地址空间大小
+  return newsz;
+}
+```
+
+值得注意的是，uvmdealloc也需要被重新修改，现在当我们分配一个超级页之后，使用的mappages依旧是原来的样子，他现在只能做到对普通页进行映射，所以我们还需要去修改mappages，使得它能够映射超级页，与此同时，还需要一个superwalk函数：
+
+```c
+// 超级页映射只需要走到第1级，不需要走到最底层，这里也是我看别人博客才了解到的。
+// 所以这里就没有必要用循环了。
+pte_t* superwalk(pagetable_t pagetable, uint64 va, int alloc)
+{
+  // 检查虚拟地址是否越界
+  if(va >= MAXVA)
+    panic("superwalk");
+  // 获取第2级页表中的页表项
+  pte_t *pte = &pagetable[PX(2, va)];
+  if(*pte & PTE_V) {
+    // 如果该页表项有效（页表存在），进入第1级页表
+    pagetable = (pagetable_t)PTE2PA(*pte); // 获取下一层页表的物理地址
+    return &pagetable[PX(1, va)];          // 返回第1级页表中对应的 PTE 指针
+  } else {
+    // 页表项无效，页表不存在，需要根据 alloc 决定是否分配新的页表页
+    // 注意：即使是映射超级页，它的页表结构也是由普通页组成的
+    if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+      return 0;  // 分配失败或不允许分配，返回 NULL
+    memset(pagetable, 0, PGSIZE); // 清零新分配的页表页
+    *pte = PA2PTE(pagetable) | PTE_V; // 设置上层页表项为新分配页的地址，并置有效位
+    // 返回第0级页表中的项
+    return &pagetable[PX(0, va)];
+  }
+}
+
+
+
+
+// - pagetable：进程页表
+// - va：要映射的起始虚拟地址，必须页对齐
+// - size：映射的大小，必须是页大小的倍数
+// - pa：起始物理地址，决定是否使用超级页
+// - perm：页表项权限位（如 PTE_W、PTE_U 等）
+int
+mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
+{
+  uint64 a, last;
+  uint64 pgsize;
+  pte_t *pte;
+
+  // 根据物理地址是否超过 SUPERBASE 判断是否使用超级页
+  if (pa >= SUPERBASE)
+    pgsize = SUPERPGSIZE;
+  else
+    pgsize = PGSIZE; 
+
+  // 检查虚拟地址是否页对齐
+  if((va % pgsize) != 0)
+    panic("mappages: va not aligned");
+
+  // 检查 size 是否是页大小的整数倍
+  if((size % pgsize) != 0)
+    panic("mappages: size not aligned");
+
+  if(size == 0)
+    panic("mappages: size");
+
+  a = va;
+  last = va + size - pgsize;
+
+  // 遍历每一页并映射
+  for(;;){
+    // 1. 根据页大小选择 walk 方式，获取/创建对应的页表项地址
+    if(pgsize == PGSIZE && (pte = walk(pagetable, a, 1)) == 0)
+      return -1;
+    if(pgsize == SUPERPGSIZE && (pte = superwalk(pagetable, a, 1)) == 0)
+      return -1;
+
+    // 2. 如果已经存在映射，说明重复映射，报错
+    if(*pte & PTE_V)
+      panic("mappages: remap");
+
+    // 3. 设置页表项，包含物理地址 + 权限 + 有效位
+    *pte = PA2PTE(pa) | perm | PTE_V;
+
+    // 4. 判断是否完成整个映射区间
+    if(a == last)
+      break;
+
+    // 5. 前进到下一页
+    a += pgsize;
+    pa += pgsize;
+  }
+
+  return 0;
+}
+
+```
+
+我们走到这一步，回到我们刚刚留下的一个问题，uvmdealloc用来处理释放内存，我们需要修改它，使得其支持超级页的释放，其中，uvmdealloc调用了uvmunmap函数，用于取消映射和释放页表，所以我们的核心就放在了他的上面：
+
+```c
+//   pagetable：进程的页表
+//   va：要解除映射的起始虚拟地址
+//   npages：要解除映射的页数
+//   do_free：是否释放物理页
+void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
+{
+  uint64 a;
+  pte_t *pte;
+  int sz;
+  // 检查虚拟地址必须页对齐
+  if((va % PGSIZE) != 0)
+    panic("uvmunmap: not aligned");
+  // 遍历每一页，解除映射
+  for(a = va; a < va + npages * PGSIZE; a += sz){
+    sz = PGSIZE;
+    // 获取页表项（不分配页表，所以 alloc=0）
+    if((pte = walk(pagetable, a, 0)) == 0)
+      panic("uvmunmap: walk");
+    // 检查页表项是否有效（是否映射）
+    if((*pte & PTE_V) == 0) {
+      printf("va=%ld pte=%ld\n", a, *pte);
+      panic("uvmunmap: not mapped");
+    }
+    // 检查该页表项是否为叶子节点（是否真正映射了物理页）
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("uvmunmap: not a leaf");
+    // 取得对应物理地址
+    uint64 pa = PTE2PA(*pte);
+    // 如果是超级页（物理地址 >= SUPERBASE），则说明是 2MB 映射
+    // 需要额外调整步长，使得下一次循环跳过整个超级页范围
+    if (pa >= SUPERBASE){
+      a += SUPERPGSIZE;
+      a -= sz; // 因为循环里还会加 sz（4KB），这里先减去以抵消
+    }
+    // 如果需要释放物理页帧
+    if(do_free){
+      uint64 pa = PTE2PA(*pte);
+      if (pa >= SUPERBASE) 
+        superfree((void*)pa); // 释放超级页
+      else 
+        kfree((void*)pa);     // 释放普通页
+    }
+    // 清空页表项
+    *pte = 0;
+  }
+}
+```
+
+此时，我们很多事情都已经干完了，接下来，回到提示，看看我们少干了些什么，我们会发现，我们的fork的条件似乎并未满足，在fork的时候，我们是通过`uvmcopy`来复制页表，所以此时修改ivmcopy的逻辑，使其能够分配超级页。
+
+```c
+// 复制用户页表的内容：
+// 把 old 页表中从 0 到 sz 的映射复制到 new 页表中。
+// 如果对应的是超级页则使用 superalloc，否则使用 kalloc。
+// 复制时连同数据内容一起复制（即数据页克隆）。
+// 返回 0 表示成功，-1 表示失败（并清理 new 页表中已分配的页）。
+int
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+  char *mem;
+  int szinc;
+
+  // 遍历 old 页表中从 0 到 sz 的所有虚拟地址
+  for(i = 0; i < sz; i += szinc){
+    szinc = PGSIZE;
+    // 找到 old 页表中当前虚拟地址 i 对应的页表项
+    // 由于此时使用的页已经被正确映射
+    // 所以普通的walk也可以找到超级页的pte
+    if((pte = walk(old, i, 0)) == 0)
+      panic("uvmcopy: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("uvmcopy: page not present");
+    // 提取物理地址与标志位
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    // 判断是普通页还是超级页
+    if(pa >= SUPERBASE) {
+      // 超级页大小设置为 2MB
+      szinc = SUPERPGSIZE;
+      // 分配新的超级页
+      if((mem = superalloc()) == 0)
+        goto err;
+    }
+    // 普通页
+    else if((mem = kalloc()) == 0)
+      goto err;
+    // 拷贝数据内容（从旧物理页拷贝到新分配的物理页）
+    memmove(mem, (char*)pa, szinc);
+    // 映射到新页表中
+    if(mappages(new, i, szinc, (uint64)mem, flags) != 0){
+      if(szinc == SUPERPGSIZE)
+        superfree(mem);
+      else
+        kfree(mem);
+      goto err;
+    }
+  }
+  return 0;
+ err:
+  // 若出错，释放 new 页表中已分配的页
+  uvmunmap(new, 0, i / PGSIZE, 1);
+  return -1;
+}
+```
+
+至此，完成。。。
+
+这个超级页的实验还是很难的，虽然根据提示我也能做出来一些，但是我一个人还是没办法完成的，总结一下：
+
+超级页的实验主要是迫使我们去真正的理解普通的页是如何分配的，如何映射，如何释放的，然后让我们自己去重新实现一遍逻辑，对于超级页而言，我觉得难想的就是映射，我还以为也要映射三级，但是事实上根本不用，这就是理解上的问题了，这个实验去做一遍还是很不错的，虽然也参考了别人的博客，但总归是自己敲了一遍，接下来几天就要all in 期中复习了，虽然想继续下一个课程，但是只能先暂缓了。
+
+参考文献：
+
+[[MIT 6.1810\]Lab3 page table](https://erlsrnby04.github.io/2024/10/05/MIT-6-1810-Lab3-page-tables/)。
 
