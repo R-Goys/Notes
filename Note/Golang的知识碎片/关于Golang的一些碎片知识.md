@@ -788,3 +788,20 @@ ans = append(ans, append([]int{}, tmp...))
 ```
 
 这样的代码，这就是我们的swap，在其他部分语言中，没有这样并行赋值的语法，而在Golang中，是支持的，而我们熟悉汇编的朋友可能会疑惑，这个转换成汇编代码是什么样子的？会不会先更新`nums[i]`，然后利用`nums[i]`去更新`nums[j]`？这里实际上是先将等号右边的数值先计算出来，保存下来，然后将他们的值赋给左边的变量，所以是不会有上述问题的，这样，我们的swap实现实际上是更加简洁优雅的，并且这样的语法能够轻松的应付很多场景。
+
+## 17. defer和return执行顺序？
+
+return会先给返回值赋值，然后执行defer执行收尾操作，最后才执行函数返回，如何测试？比方说：
+
+```go
+func test() int {
+    result := 1
+    defer func() {
+        result++
+        fmt.Println("defer:", result)
+    }()
+    return result
+}
+```
+
+他的最终打印的result为2，返回的result为1.
