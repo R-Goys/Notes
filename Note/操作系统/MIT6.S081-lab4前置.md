@@ -14,7 +14,7 @@ fork:
  ret
 ```
 
-他先将我们的需要的系统调用的对象(SYS_fork在这里实际上是int常量，表示这个系统调用的数字)，存入a7，然后通过执行ecall跳转到我们的陷阱处理的地方，由于我们此时是从用户空间陷入，所以我们此时`stvec`寄存器应当是指向用户陷入区的，所以此时是进入到了kernel/trampoline.S的`uservec`部分，其中，前面都是一些保存寄存器，然后获取参数，比较重要的一步就是：
+他先将我们的需要的系统调用的对象(SYS_fork在这里实际上是int常量，表示这个系统调用的数字)，存入a7，然后通过执行ecall跳转到我们的陷阱处理的地方(ecall除了跳转，还会修改我们的`user mode`切换为`supervisor mode`，所以这个参数就不需要手动去切换了)，由于我们此时是从用户空间陷入，所以我们此时`stvec`寄存器应当是指向用户陷入区的，所以此时是进入到了kernel/trampoline.S的`uservec`部分，其中，前面都是一些保存寄存器，然后获取参数，比较重要的一步就是：
 
 ```assembly
 csrw satp, t1
@@ -80,7 +80,7 @@ usertrapret(void)
 }
 ```
 
-随后，会跳转到userret，它同样处于trampoline之中，用于真正的恢复用户态的信息，然后真正的返回到我们的用户态。
+注意，这里是需要手动切换我们的usermode的，随后，会跳转到userret，它同样处于trampoline之中，用于真正的恢复用户态的信息，然后真正的返回到我们的用户态。
 
 
 
@@ -191,3 +191,70 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 ## 从内核空间陷入
 
 之前我们已经对用户态的陷入做了一些介绍，下面我们来细说一下我们还未涉足的领域--从内核空间陷入。
+
+当然，我们在进入内核空间之后，我们的stvec寄存器就会存储指向kernelvec的地址，这个kernelvec，就在kernel/kernelvec.S中，他的功能和我们用户态中断使用的trampoline是一样的，kernelvec会在执行中断的具体逻辑之前之前保存寄存器，随后会跳转到我们的kerneltrap：
+
+```c
+void 
+kerneltrap()
+{
+  int which_dev = 0;
+  // 读取陷入前的相关寄存器的值
+  uint64 sepc = r_sepc();       // sepc 保存的是触发 trap 的指令地址
+  uint64 sstatus = r_sstatus(); // sstatus 是当前的特权状态寄存器
+  uint64 scause = r_scause();   // scause 表示 trap 的原因（中断/异常 类型）
+
+  // 检查当前是否从 Supervisor 模式进入陷阱（这是必须的）
+  if((sstatus & SSTATUS_SPP) == 0)
+    panic("kerneltrap: not from supervisor mode");
+
+  // 确保在处理中断时中断已经被关闭，防止嵌套中断
+  if(intr_get() != 0)
+    panic("kerneltrap: interrupts enabled");
+
+  // 处理具体的设备中断，如果返回 0，说明不是已知的设备中断
+  if((which_dev = devintr()) == 0){
+    // 无法识别的 trap，打印寄存器信息用于调试
+    printf("scause=0x%lx sepc=0x%lx stval=0x%lx\n", scause, r_sepc(), r_stval());
+    panic("kerneltrap"); // 触发 panic 终止
+  }
+
+  // 如果是时钟中断（which_dev == 2）并且当前存在进程，主动让出 CPU
+  if(which_dev == 2 && myproc() != 0)
+    yield();
+
+  // yield() 可能会触发新的 trap，需要恢复寄存器供后续使用
+  w_sepc(sepc);       // 恢复陷入前的 sepc 值
+  w_sstatus(sstatus); // 恢复陷入前的 sstatus 状态
+}
+```
+
+我们在这段代码有两个关键函数，devintr和yield，我们的devintr可以检测我们的中断是否为设备中断，如果不是，则说明当前中断是一个异常，直接panic。
+
+而yield就跟注释说的一样，当检测到中断为时钟中断，则会调用yield触发调度，让出cpu，而在之后的某一刻，其中一个线程会让出cpu，从而使得我们当前的线程和kerneltrap恢复，在之后，我们会详细学习这部分内容。
+
+## 利用页面错误异常
+
+xv6在用户态发生异常时，会panic，而在内核态发生异常，则会导致内核崩溃，而真正的操作系统内核会利用页面错误来实现写时复制(COW)版本的fork。
+
+**写时复制到底是啥？**之前在学习redis，kafka，或是go语言底层的时候，都会遇见写时复制这个词语，之前虽然都分析过很多遍，但是这里会再来解释一遍：
+
+在最开始，我们会让父子进程以只读的状态来共享所有的物理页面，因为我们父子进程最初的状态是完全一样的，所以完全可以这样做！但是当父进程或者子进程尝试写操作的时候，我们的riscv cpu就会触发页面错误异常，为了处理这个异常，我们的内核复制了包含错误地址的页面，而在更新了我们的页表之后，内核就会恢复到导致异常的指令处，此时内核已经更新了相关的页表条目，这样，我们的异常指令在此时将会正确执行。这种策略下，我们可以避免子进程完全拷贝父进程的所有的数据。
+
+除此之外，我们还可以利用页面错误异常来实现惰性加载，当我们调用sbrk分配地址空间的时候，内核会分配地址空间，但是页表中将新地址标记为无效，而在实际使用他们的时候，才会分配内存！
+
+还有一个常用的功能就是从磁盘分页，我在ostep里面看见过这个，如果应用程序需要的内存超出了限度，内核就会换出一些页面，写入磁盘中，并且将他们的PTE标记为无效，如果后面cpu再次读取这个页面，就会触发页面错误，此时，内核可以检查故障地址，如果在磁盘上面，就会分配页面并将磁盘上面的数据读取到内存。
+
+**以上功能，xv6均没有实现**
+
+## 补充
+
+### **supervisor mode多了什么权限？**
+
+我们从user mode跳转到supervisor mode多了一些特权：
+
+1. 读写satp寄存器，也就是修改pagetable指针。
+2. stvec，处理trap的地址。
+3. sepc，保存程序计数器
+4. 可以使用用户不能使用的页表，也就是PTE_U标志位为0的页表
+5. ....
