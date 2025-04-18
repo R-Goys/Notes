@@ -1,6 +1,6 @@
 # Table of contents
 
-* [Notes](README.md)
+* [关于本网站](README.md)
 * [Note](note/README.md)
   * [Golang的知识碎片](note/golang-de-zhi-shi-sui-pian/README.md)
     * [关于Golang的一些碎片知识](Note/Golang的知识碎片/关于Golang的一些碎片知识.md)
