@@ -1,4 +1,4 @@
-## MySQL学习笔记
+## MySQL学习笔记4【存储引擎和索引】
 
 ----
 
@@ -249,7 +249,7 @@ Profiling 是用于分析 SQL 查询性能的工具。
 ###### 1. 语法
 
 1. **创建索引**：
-   
+  
    - 语法：
      ```sql
      CREATE [ UNIQUE | FULLTEXT ] INDEX index_name ON table_name (index_col_name, ...);
@@ -269,7 +269,7 @@ Profiling 是用于分析 SQL 查询性能的工具。
      ```
 
 3. **删除索引**：
-   
+  
    - 语法：
      ```sql
      DROP INDEX index_name ON table_name;

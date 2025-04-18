@@ -1,4 +1,4 @@
-# Innodb
+# MySQL学习笔记7【InnoDB】
 
 ## 1. 架构
 

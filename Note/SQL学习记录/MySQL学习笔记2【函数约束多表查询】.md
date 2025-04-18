@@ -1,4 +1,4 @@
-## MySQL学习笔记
+## MySQL学习笔记2【函数/约束/多表查询】
 
 ----
 
@@ -269,7 +269,7 @@ SELECT name FROM Employees;
    ```
    
 2. **列子查询示例**：
-   
+  
    ```sql
    SELECT * 
    FROM employee 
@@ -282,7 +282,7 @@ SELECT name FROM Employees;
    ```
    
 3. **行子查询示例**：
-   
+  
    ```sql
    SELECT * 
    FROM employee
@@ -294,7 +294,7 @@ SELECT name FROM Employees;
    ```
    
 4. **表子查询示例**：
-   
+  
    ```sql
    SELECT e.*, d.* 
    FROM (  #查询一张表,从这张表中再进行条件过滤或者左连接
