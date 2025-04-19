@@ -1,6 +1,6 @@
 # MIT6.S081-lab3
 
-注：本篇lab的前置知识在《xv6部分源码阅读-1》
+注：本篇lab的前置知识在《MIT6.S081-lab3前置》
 
 ## 1. Inspect a user-process page table
 
