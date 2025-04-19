@@ -1,4 +1,4 @@
-# xv6部分源码阅读
+# MIT6.S081-lab3前置
 
 ## 前言
 
@@ -488,6 +488,8 @@ usertrap(void)
   // 获取当前运行的进程
   struct proc *p = myproc();
   // 保存当前触发 trap 时的 PC（sepc 存储的是触发 trap 的用户态地址）
+  // 这里实际上也可以在trampoline里面就执行保存操作
+  // 而其他的用户寄存器则必须要在汇编trampoline里面保存
   p->trapframe->epc = r_sepc();
   // 判断是不是系统调用（scause=8 表示 ecall-from-U-mode）
   if(r_scause() == 8){

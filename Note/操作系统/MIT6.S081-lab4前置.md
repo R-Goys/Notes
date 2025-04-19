@@ -1,4 +1,4 @@
-# mit6.s081 lab4前置
+# MIT6.S081-lab4前置
 
 ## 从用户空间陷入
 
@@ -14,13 +14,13 @@ fork:
  ret
 ```
 
-他先将我们的需要的系统调用的对象(SYS_fork在这里实际上是int常量，表示这个系统调用的数字)，存入a7，然后通过执行ecall跳转到我们的陷阱处理的地方(ecall除了跳转，还会修改我们的`user mode`切换为`supervisor mode`，所以这个参数就不需要手动去切换了)，由于我们此时是从用户空间陷入，所以我们此时`stvec`寄存器应当是指向用户陷入区的，所以此时是进入到了kernel/trampoline.S的`uservec`部分，其中，前面都是一些保存寄存器，然后获取参数，比较重要的一步就是：
+他先将我们的需要的系统调用的对象(SYS_fork在这里实际上是int常量，表示这个系统调用的数字)，存入a7，然后通过执行ecall跳转到我们的陷阱处理的地方(**ecall到底干了什么？**ecall会将我们的`user mode`切换为`supervisor mode`，所以这个参数就不需要手动去切换了，并且还会将程序计数器保存到SEPC寄存器中，最后会跳转到STVEC寄存器指向的位置)，由于我们此时是从用户空间陷入，所以我们此时`stvec`寄存器应当是指向用户陷入区的，所以此时是进入到了kernel/trampoline.S的`uservec`部分，其中，前面都是一些保存寄存器，然后获取参数，当然，我们还会将cpu的id保存到tp寄存器中，之后的myproc()就是依赖于这个tp寄存器来获取proc的，比较重要的一步就是：
 
 ```assembly
 csrw satp, t1
 ```
 
-我们的trampoline在这一步可以将使用的基地址转移到内核页表，但是我们事实上还需要继续执行后续的指令，不可能因为基地址变化，后面的指令就不执行了，这就是操作系统的神奇，用户页中映射的uservec和内核页中映射的uservec的虚拟地址是相同的！随后便会清空TLB，页表缓存，然后跳转到我们的usertrap了！注意，此时我们调用usertrap之后，并不会返回到当前的位置，而是会经过usertrapret来直接返回到用户态。
+我们的trampoline在这一步可以将使用的基地址转移到内核页表，但是我们事实上还需要继续执行后续的指令，不可能因为基地址变化，后面的指令就不执行了，这就是操作系统的神奇，用户页中映射的uservec和内核页中映射的uservec的虚拟地址是相同的！随后便会清空TLB，页表缓存，然后跳转到我们的usertrap了！注意，此时我们调用usertrap之后，并不会返回到当前的位置，而是会经过usertrapret来直接返回到用户态。(usertrap可以看我lab3的前置)
 
 ```c
 // 将控制权从内核态恢复到用户态，设置陷阱相关寄存器、页表等必要状态。
@@ -28,6 +28,7 @@ csrw satp, t1
 void
 usertrapret(void)
 {
+  // 依赖于tp寄存器
   struct proc *p = myproc();
 
   // 我们即将把 stvec 设置为 usertrap，也就是用户态 trap 的入口，
@@ -54,7 +55,6 @@ usertrapret(void)
   // 保存当前 CPU 的 hartid，用于区分不同核心上的进程
   p->trapframe->kernel_hartid = r_tp();
 
-
   // 修改 sstatus 寄存器，设置好用户态返回的相关状态
   // 清除 SPP 位（Supervisor Previous Privilege）= 0，表示下一次 sret 返回到 User 模式
   // 设置 SPIE（使能中断）位，表示回到用户态后允许响应中断
@@ -74,13 +74,13 @@ usertrapret(void)
   // userret 会完成：
   //   - 切换 satp（用户页表）
   //   - 恢复用户寄存器（包括 sp、ra、a0~a7 等）
-  //   - 执行 sret，真正返回到用户态
+  //   - 执行 sret，sret会将程序计数器设置成sepc寄存器的值，切换为user mode，从而跳转到用户态。
   uint64 trampoline_userret = TRAMPOLINE + (userret - trampoline);
   ((void (*)(uint64))trampoline_userret)(satp);
 }
 ```
 
-注意，这里是需要手动切换我们的usermode的，随后，会跳转到userret，它同样处于trampoline之中，用于真正的恢复用户态的信息，然后真正的返回到我们的用户态。
+这里最后会跳转到userret，它同样处于trampoline之中，用于真正的恢复用户态的信息，通过执行sret来回到用户态。
 
 
 
@@ -245,17 +245,20 @@ xv6在用户态发生异常时，会panic，而在内核态发生异常，则会
 
 还有一个常用的功能就是从磁盘分页，我在ostep里面看见过这个，如果应用程序需要的内存超出了限度，内核就会换出一些页面，写入磁盘中，并且将他们的PTE标记为无效，如果后面cpu再次读取这个页面，就会触发页面错误，此时，内核可以检查故障地址，如果在磁盘上面，就会分配页面并将磁盘上面的数据读取到内存。
 
-**以上功能，xv6均没有实现**
+**以上功能，xv6均没有实现，而在之后的一个实验中，我们将会亲自去实现写时复制的功能！**
 
-## 补充
+> ## 补充
+>
+> ### **supervisor mode多了什么权限？**
+>
+> 我们从user mode跳转到supervisor mode多了一些特权：
+>
+> 1. 读写satp寄存器，也就是修改pagetable指针。
+> 2. stvec，存储了处理trap的地址。
+> 3. sepc，保存程序计数器
+> 4. 可以使用用户不能使用的页表，也就是PTE_U标志位为0的页表
+> 5. ....
 
-### **supervisor mode多了什么权限？**
+---
 
-我们从user mode跳转到supervisor mode多了一些特权：
-
-1. 读写satp寄存器，也就是修改pagetable指针。
-2. stvec，处理trap的地址。
-3. sepc，保存程序计数器
-4. 可以使用用户不能使用的页表，也就是PTE_U标志位为0的页表
-5. ....
-
+我们之前讨论了很多trap的内容，可能会误以为只有系统调用才会产生trap陷入，事实上，当程序出现了页错误，除以0，设备中断等情况，也会trap陷入，其实，trap的本质就是内核空间和用户空间的切换。我们之前提到过ecall干了三件事，切换mode，保存程序计数器和跳转到STVEC指向的位置。
