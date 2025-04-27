@@ -502,7 +502,7 @@ plic_claim(void)
 
 除此之外， kernelvec 和 uservec 差不多，就不多介绍了。
 
-## lecture部分
+## lecture 部分
 
 中断和系统调用很相似，虽然都使用了相同的保存状态，恢复状态的机制，并且在一个地方处理，但是他们并不一样，其实大部分内容都已经在源码阅读那一块讲完了。。哈哈。**但是**依旧有一点是值得提及的：
 
@@ -513,3 +513,128 @@ plic_claim(void)
 另外随便提一下，过去的中断处理还是很快的，原因是过去的计算机很简单，中断处理也不复杂，现在设备变得很复杂，处理器需要干的事情变得更多了，就慢了，所以产生中断之前，设备就会做大量的操作，减轻 cpu 的负担。
 
 同时，如果有一个高性能设备，如网卡，不断地接收到大量的包，产生的中断就会很多，这里的解决办法就是使用轮询，但是这里的轮询仅仅是设备 I/O 轮询，但是对于中断触发少的设备，我们依旧采取中断的方式，这样，对于中断频繁的设备，我们 cpu 主动去检查是否有数据到来，这样，来提高性能。
+
+
+
+## 锁
+
+总算到锁了。。老样子，先读源码
+
+kernel/spinlock.h
+
+```c
+// 自旋锁的结构体
+struct spinlock {
+  uint locked;       // 是否被持有
+  char *name;        // 锁名
+  struct cpu *cpu;   // 由哪一个cpu持有
+};
+```
+
+我们发现，xv6里面，自旋锁的结构体还是挺简单的，对于看过go的协程调度的我来说感觉有点轻松了，哈哈。
+
+kernel/spinlock.c
+
+我们常常看见，我们会初始化锁，获取锁，释放锁，这些其实对我们来说已经不陌生了，索性一次性读完😎
+
+```c
+void initlock(struct spinlock *lk, char *name)
+{
+  lk->name = name;
+  lk->locked = 0;      // 初始状态未被加锁
+  lk->cpu = 0;         // 没有任何CPU持有这个锁
+}
+
+void acquire(struct spinlock *lk)
+{
+  push_off(); // 关中断，防止在持锁期间被打断导致死锁
+  if (holding(lk))    // 如果当前CPU已经持有这个锁，出错
+    panic("acquire");
+
+  // 使用原子指令尝试加锁
+  // RISC-V上编译成 amoswap.w.aq 原子交换指令
+  while (__sync_lock_test_and_set(&lk->locked, 1) != 0)
+    ; // 如果锁已经被别人持有，就自旋等待
+
+  __sync_synchronize();  // 内存屏障，禁止编译器/CPU对临界区内存访问重排
+
+  lk->cpu = mycpu();     // 记录是哪个CPU持有了这把锁
+}
+
+// 释放锁
+void release(struct spinlock *lk)
+{
+  if (!holding(lk))   // 如果当前CPU没有持有锁，却想释放，出错
+    panic("release");
+
+  lk->cpu = 0;        // 清空持锁CPU信息
+
+  __sync_synchronize();  // 内存屏障，确保临界区修改的内存对其他CPU可见
+
+  // 使用原子指令释放锁，相当于 lk->locked = 0
+  __sync_lock_release(&lk->locked);
+
+  pop_off();  // 恢复中断状态
+}
+
+// 检查当前CPU是否持有这把锁
+// 要求调用前已经关闭了中断
+int holding(struct spinlock *lk)
+{
+  int r;
+  r = (lk->locked && lk->cpu == mycpu());
+  return r;
+}
+```
+
+在我们 acquire 获取锁的时候，其实就是原子操作 + while 循环的自旋，抛开性能不谈，这也算一个完整的自旋锁了。而 release 也是一样，通过原子指令释放锁。**但是**仍有一点值得注意，无论是获取锁之后，我们都需要关中断来防止被时间片或者其他中断停止，这也是很重要的一点，防止当前 cpu 被调度而执行其他进程，可以说是我们加锁的根本目的之一，而原子操作则是为了保证只有一个 cpu 可以获取这把锁，进而执行相关的代码。
+
+另外，这部分还涉及到我们的开中断和关中断的代码:
+
+```c
+// 关闭中断，并记录当前中断状态，支持嵌套关闭
+void push_off(void)
+{
+  int old = intr_get();  // 保存当前中断状态（开启 or 关闭）
+
+  intr_off();            // 立即关闭中断
+
+  if (mycpu()->noff == 0)  // 如果这是第一次调用 push_off
+    mycpu()->intena = old; // 记录第一次调用时中断是否是打开的
+
+  mycpu()->noff += 1;    // 关闭中断计数器加 1
+}
+
+// 恢复中断，支持多层嵌套的 pop_off
+void pop_off(void)
+{
+  struct cpu *c = mycpu();
+
+  if (intr_get())        // 检查当前中断不能是开启状态
+    panic("pop_off - interruptible"); // 违反规则，panic
+
+  if (c->noff < 1)        // 检查是否有多余的 pop_off 调用
+    panic("pop_off");
+
+  c->noff -= 1;           // 关闭计数器减 1
+
+  // 如果 noff 归零，且第一次 push_off 时中断是开的，那么恢复中断
+  if (c->noff == 0 && c->intena)
+    intr_on();
+}
+```
+
+这部分，感觉理解了就行。
+
+## xv6 手册
+
+### 竞态条件
+
+为啥需要锁？很简单，幻想一下多个线程同时操作一个链表就可以了，我们的链表插入在 C 语言中往往是两步：
+
+> 1. 更新需要插入的节点的 Next 指针指向原本链表的头节点
+> 2. 更新链表头节点指向当前节点。
+
+如果引入了并发，事情将不可估计，如果我们同时更新了需要插入节点的 Next 指针，那么更新原本链表头节点的时候将会发生混乱，因为其中一个节点的 Next 指针是旧的！这会为我们的并发带来不确定性。而解决这种不确定性的方法就是加锁。
+
+而在我们的 acquire 和 release 之间的区域，叫做临界区域，也就是锁保护的地方，会造成不确定性的地方。
