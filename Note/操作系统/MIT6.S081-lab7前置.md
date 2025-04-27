@@ -1,4 +1,4 @@
-#  MIT6.S081-lab5前置
+#  MIT6.S081-lab7前置
 
 这部分包含了设备中断和锁的内容
 
@@ -628,7 +628,7 @@ void pop_off(void)
 
 ## xv6 手册
 
-### 竞态条件
+### 锁
 
 为啥需要锁？很简单，幻想一下多个线程同时操作一个链表就可以了，我们的链表插入在 C 语言中往往是两步：
 
@@ -638,3 +638,199 @@ void pop_off(void)
 如果引入了并发，事情将不可估计，如果我们同时更新了需要插入节点的 Next 指针，那么更新原本链表头节点的时候将会发生混乱，因为其中一个节点的 Next 指针是旧的！这会为我们的并发带来不确定性。而解决这种不确定性的方法就是加锁。
 
 而在我们的 acquire 和 release 之间的区域，叫做临界区域，也就是锁保护的地方，会造成不确定性的地方。
+
+对于锁，我们可以尽量去降低它的粒度来提高性能，比如说对于所有的文件不应该用一把大锁去保证其原子性，而是应该对每一个文件的读写使用单独的一把锁，来降低粒度，提高并行性。
+
+**死锁**，在 go 中开发经常会出现死锁的情况，死锁是啥？有兴趣的同学可以了解一下**哲学家就餐问题**，这就是一个经典的死锁问题，而死锁就是在锁定资源时发生了冲突，比如 A 向 B 转账， 我们需要先锁定 A ， 在锁定 B ， 但是如果在同一时刻， 我们的 B 又向 A 发起转账， 如果我们的 A 和 B 同时被两个线程进行锁定，那么接下来两个线程都还需要分别对 B 和 A 进行锁定，此时就会产生冲突，导致资源不会被释放，两个线程就卡住了的情况。虽然听起来很难发生，但是这确实很常见的问题。而很多系统都会自动检测这样的死锁， xv6 当然也可以。
+
+在文件系统里面，锁的调用链很长，所以会很容易造成死锁，所以一般对某一个地方加锁，会按照规定的顺序来加锁，但是这样也会存在很多问题，比如说逻辑顺序和锁的顺序不一致等，所以关于死锁真的是一个很大的问题。
+
+中断和锁交织的时候，也会出现一些问题，比如在 sys_sleep 的时候，如果这个 cpu 持有 tickslock ，并且又被计时器中断了，那么计时器就会尝试获取这把锁，当然，很轻易地就可以知道，这里的中断永远不可能获取 ticklock 的，所以在持有锁的时候，我们需要关中断，这里对应了我们上面的代码讲解。
+
+而编译器有时为了性能，会不按顺序执行代码，如果我们被锁定的代码段和锁的顺序被打乱，那也是一个问题，所以我们会使用 `__sync_synchronize` 来禁止 cpu 对指令进行重排。
+
+**Sleep锁**，这种锁很常见， go 中的自旋锁其实是 sleeplock 和 spinlock 的结合，具有更好的性能。为什么会有这种锁？因为我们有时会锁定资源很长时间，而其他的 spinlock 也会不断自旋，无法执行其他任务，从而浪费 cpu 资源，而我们的 sleeplock 在无法获取锁的时候，就会陷入睡眠，这个cpu允许去执行其他程序，并且允许被中断唤醒，重新去持有这把锁，这样就提高了 cpu 了利用率。
+
+lecture里面感觉没啥好说的，都是提过的内容，为了写 lock 实验，我们还需要去阅读一下第 8 章的内容。
+
+### buffer cache
+
+文件系统并不是我们本次的重点，但是依旧需要提一下，文件系统的目的是组织，存储数据，支持用户间的数据共享，保证数据的持久性。而 buffer cache 则是在我们磁盘的外面一层作为缓存的，它是以双链表表示的缓冲区。尽管我们在 main 中是以静态数组 buf 的形式初始化 NBUF 个缓冲区初始化列表，但是对 buffer cache 的所有其他访问都通过 bcache.head 引用链表，而不是数组。每次想要从硬盘读取数据的时候，不会直接去读，而是先去读取在内存中维护的缓存，我们可以通过代码来详细了解一下。
+
+通常，比如 readi 读取数据的时候，会通过 bread 来获取对应设备，对应编号的缓存块，然后从中读取数据。我们重点看看 bread 的逻辑：
+
+```c
+// 返回一个锁定的缓冲区（buf），其中包含指定设备 dev 和块号 blockno 的数据。
+struct buf*
+bread(uint dev, uint blockno)
+{
+  struct buf *b;
+
+  // 获取对应设备和块号的缓冲区，返回后缓冲区已经加锁
+  b = bget(dev, blockno);
+
+  // 如果缓冲区内容无效（还没有正确的数据）
+  if(!b->valid) {
+    // 从磁盘读取对应块的数据到缓冲区中
+    virtio_disk_rw(b, 0);  // 第二个参数0表示读取操作
+    // 标记缓冲区内容有效
+    b->valid = 1;
+  }
+
+  // 返回包含数据的、已经加锁的缓冲区
+  return b;
+}
+```
+
+bget 函数返回的缓冲区是加了锁的，我们可以看看 bget 到底干了什么：
+
+```c
+// 在缓冲区缓存中查找指定设备 dev 上的块 blockno。
+// 如果找到，返回对应的缓冲区（已加锁）。
+// 如果没找到，分配一个空闲缓冲区，并返回（也已加锁）。
+static struct buf*
+bget(uint dev, uint blockno)
+{
+  struct buf *b;
+
+  // 加锁，保护整个缓冲区缓存结构
+  acquire(&bcache.lock);
+
+  // 第一轮：查找是否已经缓存了目标块
+  for(b = bcache.head.next; b != &bcache.head; b = b->next){
+    if(b->dev == dev && b->blockno == blockno){
+      // 找到了：增加引用计数
+      b->refcnt++;
+      // 释放 bcache.lock，因为要改拿缓冲区自己的睡眠锁
+      release(&bcache.lock);
+      // 加锁缓冲区，防止其他线程访问
+      acquiresleep(&b->lock);
+      return b;
+    }
+  }
+
+  // 第二轮：找一个空闲的缓冲区（最近最少使用的，从链表尾部开始）
+  for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
+    if(b->refcnt == 0) { // 找到一个没人用的
+      // 重新初始化缓冲区元数据
+      b->dev = dev;
+      b->blockno = blockno;
+      b->valid = 0;    // 标记为无效，需要重新读磁盘
+      b->refcnt = 1;   // 引用一次
+      release(&bcache.lock);
+      acquiresleep(&b->lock);
+      return b;
+    }
+  }
+
+  // 如果没有空闲缓冲区了（说明太多进程占用了缓存）
+  panic("bget: no buffers");
+}
+```
+
+在这里我们可以看见，在返回之前都会释放掉整个缓冲区的锁，而加上单独一块缓冲区的锁，先从前往后遍历链表，如果发现当前需要读取的块已经在缓冲区里面了，那么就可以标记为有效直接返回，如果不在，则需要找到一个空闲的块，而后我们需要标记为无效并且从磁盘重新读取数据。
+
+这里仅仅是读取操作，为什么要加锁？原因是这里需要从链表中获取缓冲区，如果两个线程需要读取相同的块缓冲区，但是都没有读取到，此时就会返回一个空闲的区域来读取磁盘上的信息作为缓存，但是这很有可能会造成返回了两个不同的缓冲区，也就是说，一个区块有两块缓存！如果我们分别对这两块缓存区进行读写操作，那就不符合原子性了！因为一块缓存单独持有一把锁，我们应该把这把锁对应到文件系统上面的块。
+
+在进行写入操作之后，我们还需要调用 bwrite 将更改的数据写入到磁盘，而在使用完缓冲区之后，我们会调用 brelse 去释放这块缓冲区的锁，并且将它放到链表的最前面。
+
+顺便，我们可以了解一下磁盘的写入：
+
+```c
+// 向磁盘发起读/写请求。
+// b 是要操作的缓冲区，write==0表示读磁盘到内存，write!=0表示写内存到磁盘。
+void
+virtio_disk_rw(struct buf *b, int write)
+{
+  // 计算要操作的磁盘扇区号（块号 × 每块大小/每扇区大小）
+  uint64 sector = b->blockno * (BSIZE / 512);
+
+  // 获取磁盘的锁，保护共享资源
+  acquire(&disk.vdisk_lock);
+
+#ifdef LAB_LOCK
+  // （实验用）检查缓冲区是否持有正确的锁
+  checkbuf(b);
+#endif
+
+  // 根据virtio规范：一次块设备请求需要用3个描述符
+  // 1. 请求头（读/写操作类型、扇区号）
+  // 2. 数据区（读或者写的数据）
+  // 3. 结果状态（1字节，设备填充）
+
+  int idx[3];
+  while(1){
+    // 申请3个描述符
+    if(alloc3_desc(idx) == 0) {
+      break;
+    }
+    // 申请失败，等待可用描述符
+    sleep(&disk.free[0], &disk.vdisk_lock);
+  }
+
+  // 填写第一个描述符：请求头
+  struct virtio_blk_req *buf0 = &disk.ops[idx[0]];
+
+  if(write)
+    buf0->type = VIRTIO_BLK_T_OUT; // 写磁盘
+  else
+    buf0->type = VIRTIO_BLK_T_IN;  // 读磁盘
+  buf0->reserved = 0;
+  buf0->sector = sector;  // 设置要读/写的扇区号
+
+  disk.desc[idx[0]].addr = (uint64) buf0;  // 地址指向请求头
+  disk.desc[idx[0]].len = sizeof(struct virtio_blk_req); // 大小是请求头结构体
+  disk.desc[idx[0]].flags = VRING_DESC_F_NEXT;  // 后面还有描述符
+  disk.desc[idx[0]].next = idx[1];  // 指向下一个描述符
+
+  // 填写第二个描述符：数据缓冲区
+  disk.desc[idx[1]].addr = (uint64) b->data; // 数据地址（缓冲区）
+  disk.desc[idx[1]].len = BSIZE;             // 大小是一个块
+  if(write)
+    disk.desc[idx[1]].flags = 0;              // 写磁盘时，设备读数据
+  else
+    disk.desc[idx[1]].flags = VRING_DESC_F_WRITE; // 读磁盘时，设备写数据
+  disk.desc[idx[1]].flags |= VRING_DESC_F_NEXT; // 还有下一个描述符
+  disk.desc[idx[1]].next = idx[2];             // 指向状态描述符
+
+  // 填写第三个描述符：操作结果状态
+  disk.info[idx[0]].status = 0xff; // 初始化状态，设备完成后会写0
+  disk.desc[idx[2]].addr = (uint64) &disk.info[idx[0]].status;
+  disk.desc[idx[2]].len = 1; // 只需要1字节
+  disk.desc[idx[2]].flags = VRING_DESC_F_WRITE; // 设备写结果
+  disk.desc[idx[2]].next = 0; // 最后一个描述符了
+
+  // 记录缓冲区，供中断处理函数 virtio_disk_intr() 使用
+  b->disk = 1; // 标记为请求中
+  disk.info[idx[0]].b = b;
+
+  // 告诉设备可用的描述符链的第一个索引
+  disk.avail->ring[disk.avail->idx % NUM] = idx[0];
+
+  __sync_synchronize(); // 内存屏障，确保写操作顺序
+
+  // 更新 avail->idx，通知设备新请求已准备好
+  disk.avail->idx += 1; // 不需要取模！
+
+  __sync_synchronize(); // 再次内存屏障
+
+  // 写寄存器通知设备有新请求（queue 0）
+  *R(VIRTIO_MMIO_QUEUE_NOTIFY) = 0;
+
+  // 等待中断处理函数把 b->disk 置为0，表示磁盘操作完成
+  while(b->disk == 1) {
+    sleep(b, &disk.vdisk_lock);
+  }
+
+  // 清理：标记 info 没有关联的 buf
+  disk.info[idx[0]].b = 0;
+  // 释放三个描述符
+  free_chain(idx[0]);
+
+  // 解锁磁盘
+  release(&disk.vdisk_lock);
+}
+```
+
+这里看看就行，仅作了解，之后关于文件系统还会详细介绍，当我们将 type 修改为写时，随后进行一系列发送请求，发送信号等一系列操作，我们硬件会被提醒有新的数据到达，然后我们的硬件会去读取缓冲区的数据，而在这段代码中，我们会将缓冲区的指针赋给结构体中的变量，这样硬件就可以识别这段缓冲区并且进行读取了。
+
