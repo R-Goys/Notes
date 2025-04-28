@@ -184,3 +184,169 @@ test3 OK
 完成。
 
 ## Buffer cache
+
+实验的目的是降低 cache 锁的粒度，根据实验的 hint ，我们可以采取**哈希桶**，每个桶单独占有一把锁，一部分缓存 cache 链表，以此来提高并行性。
+
+桶的数量可以很随机，我这里选取 13 ，因为总共的 cache 块也不多，并且我们需要构造一个哈希函数，以此来返回对应的哈希表中的位置：
+
+```c
+#define NBUCKET 13
+
+#define HASH(dev, blockno) ((((unsigned int)(dev)) << 16 | (blockno)) % NBUCKET)
+
+struct bucket {
+  struct spinlock lock;
+  struct buf *head;
+};
+
+struct {
+  struct spinlock lock;
+  struct buf buf[NBUF];
+
+  // Linked list of all buffers, through prev/next.
+  // Sorted by how recently the buffer was used.
+  // head.next is most recent, head.prev is least.
+  struct bucket buckets[NBUCKET];
+} bcache;
+```
+
+随后，我们也会看到一堆爆红，我们首先需要做修改的就是 binit ，他是初始化我们的 bcache 链表的，我们可以把它改成均匀分布在每个哈希桶中，也可以单独挂在一个桶里面，这里为了方便，直接挂在一个桶里面了：
+
+```c
+void
+binit(void)
+{
+  for (int i = 0; i < NBUCKET; i++) {
+    initlock(&bcache.buckets[i].lock, "bcache.bucket");  // 初始化每个桶的锁
+    bcache.buckets[i].head = 0;  // 初始化每个桶的链表头为空
+  }
+  initlock(&bcache.lock, "bcache");  // 初始化全局锁
+  for(int i = 0; i < NBUF; i++) {
+    struct buf *b = &bcache.buf[i];
+    int bucket = 0;
+    b->next = bcache.buckets[bucket].head;
+    b->prev = 0;
+    if (bcache.buckets[bucket].head != 0) {
+      bcache.buckets[bucket].head->prev = b;
+    }
+    bcache.buckets[bucket].head = b;
+    initsleeplock(&b->lock, "buffer");
+  }
+}
+```
+
+随后是我们的重点，也就是 bget ，可以说我们的核心逻辑就在这里面，最难的也是这部分的内容，和原来一样，我们先找到对应的桶，然后在对应的桶里面寻找对应的块缓存是否存在，如果不存在，那就去寻找我们的空闲 cache ，当然，如果不存在空闲 cache ，就从其他的桶中窃取，这里的控制很有意思，我在这里试了很多方法，发现都不能 pass 这个实验，最终，只能加一把大锁来保平安，防止死锁的情况。
+
+```c
+static struct buf*
+bget(uint dev, uint blockno)
+{
+  struct buf *b;
+
+  int bucket = HASH(dev, blockno);  // 计算桶号
+  acquire(&bcache.buckets[bucket].lock);  // 给目标桶加锁
+
+  // 查看这个块是否被缓存到目标桶
+  for(b = bcache.buckets[bucket].head; b; b = b->next){
+    if(b->dev == dev && b->blockno == blockno){
+      b->refcnt++;
+      release(&bcache.buckets[bucket].lock);  // 解锁目标桶
+      acquiresleep(&b->lock);  // 给目标缓存块加锁
+      return b;
+    }
+  }
+
+  // 缓存未命中，在目标桶中找一块干净的块
+  for(b = bcache.buckets[bucket].head; b; b = b->next){
+    if(b->refcnt == 0) {
+      b->dev = dev;
+      b->blockno = blockno;
+      b->valid = 0;
+      b->refcnt ++;
+      release(&bcache.buckets[bucket].lock);  // 解锁目标桶
+      acquiresleep(&b->lock);  // 给目标缓存块加锁
+      return b;
+    }
+  }
+  release(&bcache.buckets[bucket].lock);  // 解锁目标桶
+  acquire(&bcache.lock);
+  for (int i = 0; i < NBUCKET; i++) {
+    if (i == bucket) continue;
+    acquire(&bcache.buckets[i].lock); // 获取当前桶的锁
+    for (b = bcache.buckets[i].head; b; b = b->next) {
+      if (b->refcnt == 0) {
+        // 从当前桶移除块
+        if (b->prev) {
+          b->prev->next = b->next;
+        } else {
+          bcache.buckets[i].head = b->next;
+        }
+        if (b->next) {
+          b->next->prev = b->prev;
+        }
+        // 将块添加到目标桶头部
+        b->prev = 0;
+        b->next = bcache.buckets[bucket].head;
+        if (bcache.buckets[bucket].head) {
+          bcache.buckets[bucket].head->prev = b;
+        }
+        bcache.buckets[bucket].head = b;
+
+        b->dev = dev;
+        b->blockno = blockno;
+        b->valid = 0;
+        b->refcnt = 1;
+
+        release(&bcache.buckets[i].lock);
+        release(&bcache.lock);
+        acquiresleep(&b->lock);
+        return b;
+      }
+    }
+    release(&bcache.buckets[i].lock); // 释放当前桶的锁
+  }
+  release(&bcache.lock);
+  panic("bget: no buffers");
+}
+```
+
+随后关于 brelse 的改动也是很重要的，由于我们维护的哈希桶，查找快速，这里就直接采取引用数减一的模式。
+
+```c
+void
+brelse(struct buf *b)
+{
+  int bucket = HASH(b->dev, b->blockno);
+  if(!holdingsleep(&b->lock))
+    panic("brelse");
+
+  releasesleep(&b->lock);
+  acquire(&bcache.buckets[bucket].lock);
+  b->refcnt--;
+  release(&bcache.buckets[bucket].lock);
+}
+```
+
+最后，不那么重要的，直接修改一下几个函数的锁就行了：
+
+```c
+void
+bpin(struct buf *b) {
+  int bucket = HASH(b->dev, b->blockno);
+  acquire(&bcache.buckets[bucket].lock);
+  b->refcnt++;
+  release(&bcache.buckets[bucket].lock);
+}
+
+void
+bunpin(struct buf *b) {
+  int bucket = HASH(b->dev, b->blockno);
+  acquire(&bcache.buckets[bucket].lock);  
+  if(b->refcnt > 0) b->refcnt--;
+  release(&bcache.buckets[bucket].lock);
+}
+```
+
+---
+
+有点疲劳，写的比较马虎，明天再回来补充吧。
