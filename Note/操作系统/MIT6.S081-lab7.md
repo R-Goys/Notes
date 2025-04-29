@@ -15,6 +15,8 @@ struct {
   struct spinlock lock;
   struct run *freelist;
 } kmem[NCPU];
+// 全局锁
+struct spinlock kmem_lock;
 
 char* kmem_lock_name[NCPU] = {
   "kmem1", "kmem2", "kmem3", "kmem4", "kmem5", "kmem6", "kmem7", "kmem8"
@@ -29,6 +31,7 @@ char* kmem_lock_name[NCPU] = {
 void
 kinit()
 {
+  initlock(&kmem_lock, "kmem_lock");
   for(int i = 0; i < NCPU; i++) {
     // 这里发生改变，为每个 cpu 初始化一个锁。
     initlock(&kmem[i].lock, kmem_lock_name[i]);
@@ -62,77 +65,72 @@ kfree(void *pa)
 }
 ```
 
-最后，我们需要给分配页表的函数 kalloc 进行大改！
+最后，我们需要给分配页表的函数 kalloc 进行大改！我们需要明确， kalloc 发现本地页表不足时，应该如何对其他的 cpu 的页表进行窃取，又应该如何加锁，这里我发现无论怎么加锁，甚至是全局锁，冒着死锁风险加嵌套锁，都没有办法通过 test3 ，尽管偶尔真的可以侥幸通过，但是不知道是什么原因通不过。。。
 
 ```c
-// Allocate one 4096-byte page of physical memory.
-// Returns a pointer that the kernel can use.
-// Returns 0 if out of memory.
 void *
 kalloc(void)
 {
   struct run *r;
 
-  int cpu = cpuid(); // 当前 CPU id
-  acquire(&kmem[cpu].lock); // 锁住本 CPU 的内存分配器
+  int cpu = cpuid();
+  acquire(&kmem[cpu].lock);
 
-  r = kmem[cpu].freelist; // 尝试从自己的空闲链表拿一页
+  r = kmem[cpu].freelist;
 
   release(&kmem[cpu].lock);
-
-  // 如果自己链表空了，去偷别人的页面
   if(!r) {
+    // 全局锁
+    acquire(&kmem_lock);
     int steal_pages = 0;
     for(int i = 0; i < NCPU; i++) {
-      if (i == cpu) continue; // 不偷自己
-
-      acquire(&kmem[i].lock); // 锁住第 i 个 CPU 的链表，在 while 前面锁是为了读取的数据是正确的
-        						  // 但是之后需在正确的位置解锁
+      if (i == cpu) continue;
+      acquire(&kmem[i].lock);
       while (kmem[i].freelist) {
-        // 取出 i 的 freelist 中最前面的页面
+        // 处理被窃取的链表
         struct run* newpage = kmem[i].freelist;
-        kmem[i].freelist = newpage->next;
+        kmem[i].freelist = newpage->next; 
         release(&kmem[i].lock);
-
-        // 将偷来的页面加到自己链表头
+        // 处理窃取的链表
         acquire(&kmem[cpu].lock);
         newpage->next = kmem[cpu].freelist;
         kmem[cpu].freelist = newpage;
+        steal_pages ++;
         release(&kmem[cpu].lock);
-
-        steal_pages++;
-
-        // 如果偷够了 32 页，停止偷
+        // 窃取了 32 个页面，足够了，就不再偷了。
         if(steal_pages == 32) {
+          release(&kmem_lock);
           goto done;
         }
-
-        // 可能会继续偷 i 的下一页，重新加锁
+        // 之后还有可能会窃取这个 cpu 中的页表，先加锁
         acquire(&kmem[i].lock);
       }
-      release(&kmem[i].lock); // i 没得偷了，解锁
+      // 出来了，释放锁
+      release(&kmem[i].lock);
     }
-
-    // 如果一个页面都没偷到，说明系统真的内存用光了
+    // 如果为 0，说明没有别的 CPU 有空闲页面，需要 panic。
     if(steal_pages == 0) {
+      release(&kmem_lock);
       return 0;
     }
+    release(&kmem_lock);
   }
-
 done:
-  // 完成，重新分配页表
   acquire(&kmem[cpu].lock);
+  // 重新获取页
   r = kmem[cpu].freelist;
 
   if(r)
     kmem[cpu].freelist = r->next;
 
+
   release(&kmem[cpu].lock);
 
   if(r)
-    memset((char*)r, 5, PGSIZE);
+    memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
 ```
 
 `make qemu` 之后输入 `kalloctest` ：
@@ -181,7 +179,7 @@ tot= 9551
 test3 OK
 ```
 
-完成。
+完成。（第一次输入的时候就通过了，我以为没啥问题，直到后面我多测试了几次发现有时会通不过。。）
 
 ## Buffer cache
 
@@ -210,7 +208,7 @@ struct {
 } bcache;
 ```
 
-随后，我们也会看到一堆爆红，我们首先需要做修改的就是 binit ，他是初始化我们的 bcache 链表的，我们可以把它改成均匀分布在每个哈希桶中，也可以单独挂在一个桶里面，这里为了方便，直接挂在一个桶里面了：
+随后，我们也会看到一堆爆红，我们首先需要做修改的就是 binit ，他是初始化我们的 bcache 链表的，我们可以把它改成均匀分布在每个哈希桶中，也可以单独挂在一个桶里面，这里为了方便，直接挂在一个桶里面了，注意我们除了 next 指针，还需要正确的维护 prev 指针，因为我们待会分配缓存块的时候两者都有很大的作用：
 
 ```c
 void
@@ -275,10 +273,11 @@ bget(uint dev, uint blockno)
     acquire(&bcache.buckets[i].lock); // 获取当前桶的锁
     for (b = bcache.buckets[i].head; b; b = b->next) {
       if (b->refcnt == 0) {
-        // 从当前桶移除块
+        // 从当前桶移除块，如果前导节点存在
         if (b->prev) {
           b->prev->next = b->next;
         } else {
+          // 不存在，说明这个缓存块在链表头上。
           bcache.buckets[i].head = b->next;
         }
         if (b->next) {
@@ -287,11 +286,12 @@ bget(uint dev, uint blockno)
         // 将块添加到目标桶头部
         b->prev = 0;
         b->next = bcache.buckets[bucket].head;
+        // 如果我们当前的桶的 head 存在
         if (bcache.buckets[bucket].head) {
           bcache.buckets[bucket].head->prev = b;
         }
         bcache.buckets[bucket].head = b;
-
+		 // 初始化这个块
         b->dev = dev;
         b->blockno = blockno;
         b->valid = 0;
@@ -305,12 +305,13 @@ bget(uint dev, uint blockno)
     }
     release(&bcache.buckets[i].lock); // 释放当前桶的锁
   }
+  // 全局锁
   release(&bcache.lock);
   panic("bget: no buffers");
 }
 ```
 
-随后关于 brelse 的改动也是很重要的，由于我们维护的哈希桶，查找快速，这里就直接采取引用数减一的模式。
+随后关于 brelse 的改动也是很重要的，由于我们维护的哈希桶，查找起来很快，所以这里不需要采取修改链表的操作（根据 hint 可以了解到这一点），这里就直接采取引用数减一的模式。
 
 ```c
 void
@@ -347,6 +348,22 @@ bunpin(struct buf *b) {
 }
 ```
 
----
+最终结果：
 
-有点疲劳，写的比较马虎，明天再回来补充吧。
+```bash
+== Test running bcachetest == 
+$ make qemu-gdb
+(101.6s) 
+== Test   bcachetest: test0 == 
+  bcachetest: test0: OK 
+== Test   bcachetest: test1 == 
+  bcachetest: test1: OK 
+== Test   bcachetest: test2 == 
+  bcachetest: test2: OK 
+== Test   bcachetest: test3 == 
+  bcachetest: test3: OK 
+== Test usertests == 
+$ make qemu-gdb
+usertests: OK (110.5s) 
+```
+
