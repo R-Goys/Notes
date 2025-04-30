@@ -33,3 +33,21 @@ func countGoodStrings(low int, high int, zero int, one int) int {
 }
 ```
 
+二刷
+
+```go
+func countGoodStrings(low int, high int, zero int, one int) int {
+    f := make([][2]int, high + 1)
+    mod := 1000000007
+    for i := 1; i <= high; i ++ {
+        if zero <= i {
+            f[i][0] = (f[i - zero][0] + f[i - zero][1] + 1) % mod
+        }
+        if one <= i {
+            f[i][1] = (f[i - one][0] + f[i - one][1] + 1) % mod
+        }
+    }
+    return ((f[high][0] + f[high][1]) % mod - (f[low - 1][0] + f[low - 1][1]) % mod + mod) % mod
+}
+```
+

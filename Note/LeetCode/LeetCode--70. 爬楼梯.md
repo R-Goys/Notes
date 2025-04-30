@@ -20,3 +20,17 @@ func climbStairs(n int) int {
 }
 ```
 
+二刷，尽量优雅
+
+```go
+func climbStairs(n int) int {
+    f1 := 1
+    f2 := 2
+    for i := 1; i < n; i ++ {
+        f1 = f1 + f2
+        f1, f2 = f2, f1
+    }
+    return f1
+}
+```
+

@@ -21,3 +21,17 @@ func minCostClimbingStairs(cost []int) int {
 }
 ```
 
+二刷，easy：
+
+```go
+func minCostClimbingStairs(cost []int) int {
+    f0 := cost[0]
+    f1 := cost[1]
+    for i := 2; i < len(cost); i ++ {
+        f0 = min(f0, f1) + cost[i]
+        f0, f1 = f1, f0
+    }
+    return min(f0, f1)
+}
+```
+

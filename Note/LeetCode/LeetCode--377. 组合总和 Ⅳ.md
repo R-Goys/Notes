@@ -24,3 +24,21 @@ func combinationSum4(nums []int, target int) int {
 }
 ```
 
+二刷
+
+```go
+func combinationSum4(nums []int, target int) int {
+    n := len(nums)
+    f := make([]int, target + 1)
+    f[0] = 1
+    for v := 1; v <= target; v ++ {
+        for i := 0; i < n; i ++ {
+            if nums[i] <= v {
+                f[v] += f[v - nums[i]]
+            }
+        }
+    }
+    return f[target]
+}
+```
+
