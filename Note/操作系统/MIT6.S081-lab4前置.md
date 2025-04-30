@@ -192,7 +192,83 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 
 之前我们已经对用户态的陷入做了一些介绍，下面我们来细说一下我们还未涉足的领域--从内核空间陷入。
 
-当然，我们在进入内核空间之后，我们的stvec寄存器就会存储指向kernelvec的地址，这个kernelvec，就在kernel/kernelvec.S中，他的功能和我们用户态中断使用的trampoline是一样的，kernelvec会在执行中断的具体逻辑之前之前保存寄存器，随后会跳转到我们的kerneltrap：
+当然，我们在进入内核空间之后，我们的stvec寄存器就会存储指向kernelvec的地址，这个kernelvec，就在kernel/kernelvec.S中，他的功能和我们用户态中断使用的trampoline是一样的，唯一不同的一点是，用户陷入使用的是 trapframe 去保存用户态的寄存器（上下文），而内核态陷入则是使用的栈：
+
+```assembly
+        #
+        # 中断或异常发生在 supervisor 模式（内核态）时，从这里进入。
+        # 此时使用的是内核栈。
+        # 保存寄存器，调用 kerneltrap() 处理陷阱。
+        # kerneltrap() 返回后，恢复寄存器，返回原执行点。
+        #
+.globl kerneltrap       # 声明 kerneltrap 为全局符号（C 函数）
+.globl kernelvec        # 声明 kernelvec 为全局符号（stvec 设置为它）
+.align 4                # 对齐到 16 字节（2^4）
+
+kernelvec:
+        # 为保存寄存器腾出 256 字节栈空间
+        addi sp, sp, -256
+
+        # 保存 caller-saved 寄存器到内核栈上
+        sd ra, 0(sp)       # 返回地址
+        sd sp, 8(sp)       # 栈指针（虽然被改了，仍保存一下）
+        sd gp, 16(sp)      # 全局指针
+        sd tp, 24(sp)      # 线程指针（hartid）
+
+        sd t0, 32(sp)      # 临时寄存器 t0
+        sd t1, 40(sp)
+        sd t2, 48(sp)
+
+        sd a0, 72(sp)      # 参数寄存器 a0~a7
+        sd a1, 80(sp)
+        sd a2, 88(sp)
+        sd a3, 96(sp)
+        sd a4, 104(sp)
+        sd a5, 112(sp)
+        sd a6, 120(sp)
+        sd a7, 128(sp)
+
+        sd t3, 216(sp)     # 临时寄存器 t3~t6（保存在偏移更后的位置）
+        sd t4, 224(sp)
+        sd t5, 232(sp)
+        sd t6, 240(sp)
+
+        # 调用 C 函数 kerneltrap 来处理中断/异常
+        call kerneltrap
+
+        # 恢复寄存器（从栈中加载回原寄存器）
+        ld ra, 0(sp)
+        ld sp, 8(sp)
+        ld gp, 16(sp)
+        # 不恢复 tp（线程指针），因为中断可能切换了 CPU 核
+        ld t0, 32(sp)
+        ld t1, 40(sp)
+        ld t2, 48(sp)
+
+        ld a0, 72(sp)
+        ld a1, 80(sp)
+        ld a2, 88(sp)
+        ld a3, 96(sp)
+        ld a4, 104(sp)
+        ld a5, 112(sp)
+        ld a6, 120(sp)
+        ld a7, 128(sp)
+
+        ld t3, 216(sp)
+        ld t4, 224(sp)
+        ld t5, 232(sp)
+        ld t6, 240(sp)
+
+        # 栈指针恢复到原位置
+        addi sp, sp, 256
+
+        # 使用 sret 指令从中断/异常中返回，回到之前的内核态代码继续执行
+        sret
+```
+
+
+
+kernelvec会在执行中断的具体逻辑之前之前保存寄存器，随后会跳转到我们的kerneltrap：
 
 ```c
 void 
