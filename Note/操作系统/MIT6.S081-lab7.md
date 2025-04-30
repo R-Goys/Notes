@@ -367,3 +367,6 @@ $ make qemu-gdb
 usertests: OK (110.5s) 
 ```
 
+---
+
+我先写完了 kalloc 部分的 lab ，测出来发现没问题就直接去写 bcache 部分的lab了，思路很相似，不过 bcache 最终的解决方案只能加个全局锁，后面 make grade 的时候，我才发现，我的 kalloc 的方案不行，后面改成全局锁，嵌套锁也不太行，就做罢了。
