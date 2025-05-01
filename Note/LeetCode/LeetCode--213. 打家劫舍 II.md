@@ -60,3 +60,29 @@ func _rob(nums []int) int {
 }
 ```
 
+---
+
+二刷，分开计算，最方便
+
+```go
+func rob(nums []int) int {
+    n := len(nums)
+    if n == 0 {
+        return 0
+    }
+    if n == 1 {
+        return nums[0]
+    }
+    return max(_rob(nums[1:]), _rob(nums[:len(nums) - 1]))
+}
+
+func _rob(nums []int) int {
+    n := len(nums)
+    f0, f1 := 0 , nums[0]
+    for i := 1; i < n; i ++ {
+        f0, f1 = max(f0, f1), f0 + nums[i]  
+    }
+    return max(f0, f1)
+}
+```
+
