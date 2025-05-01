@@ -34,3 +34,24 @@ func dp(nums []int) int {
 }
 ```
 
+二刷
+
+```go
+func deleteAndEarn(nums []int) int {
+    maxVal := 0
+    n := len(nums)
+    for i := 0; i < n; i ++ {
+        maxVal = max(maxVal, nums[i])
+    }
+    src := make([]int, maxVal + 1)
+    for i := 0; i < n; i ++ {
+        src[nums[i]] += nums[i]
+    }
+    f0, f1 := 0, src[0]
+    for i := 1; i <= maxVal; i ++ {
+        f0, f1 = max(f0, f1), f0 + src[i]
+    }
+    return max(f0, f1)
+}
+```
+
