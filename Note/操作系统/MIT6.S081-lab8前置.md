@@ -1,6 +1,6 @@
 # MIT6.S081-lab8前置
 
-注：本部分除了文件还包含了调度的内容。
+注：本部分除了文件系统还包含了调度的内容。
 
 ## 调度
 
@@ -488,3 +488,1269 @@ lecture 大概就讲了这么些东西，其他的 scheduler 在之前已经提�
 ## 文件系统
 
 在之前的 lab 中，我们对文件系统的部分内容有了初步的了解，现在，我们将更深入地接触 xv6 的文件系统。
+
+我们首先要看的第一个地方，就是 mkfs/mkfs.c ，其中有一个 main 函数，他并不是 xv6 中的一个命令，而是将我们的操作系统打包成一个镜像的一个程序，我们通过 makefile 可以发现这一点：
+
+```makefile
+fs.img: mkfs/mkfs README $(UEXTRA) $(UPROGS)
+	mkfs/mkfs fs.img README $(UEXTRA) $(UPROGS)
+...
+qemu: newfs.img $K/kernel fs.img
+	$(QEMU) $(QEMUOPTS)
+```
+
+我们可以看到，我们会通过 mkfs 这个程序来讲内核文件全部打包，而在这个 mkfs 中，还会自己打包用户态的命令，为什么需要打包？除去我们的 qemu 需要一个操作系统镜像之外，其实我们也可以运行这些代码，但是我们无法获得一个独立的文件或者系统环境，通过镜像打包，将内核/用户代码加载到镜像中，而在 qemu 中运行的 xv6 拥有一个独立的文件系统，从某种意义上来说，这更像一个操作系统。
+
+我们在打包镜像之后，可以通过 qemu 去启动这个操作系统，在我们的 mkfs 中调用的 balloc 与实际 xv6 使用的文件系统没有什么关系，我们只需要看 kernel/fs.c 就可以了， **balloc** ：
+
+```c
+static uint
+balloc(uint dev)
+{
+  int b, bi, m;
+  struct buf *bp;
+
+  bp = 0;
+  for(b = 0; b < sb.size; b += BPB){
+    bp = bread(dev, BBLOCK(b, sb));  // 读取磁盘上的块，隐含加锁
+    for(bi = 0; bi < BPB && b + bi < sb.size; bi++){
+      m = 1 << (bi % 8);
+      if((bp->data[bi/8] & m) == 0){  // 检查块是否空闲
+        bp->data[bi/8] |= m;  // 标记块已分配
+        log_write(bp);  // 写入日志，记录操作
+        brelse(bp);  // 释放缓冲区
+        bzero(dev, b + bi);  // 清空分配的块
+        return b + bi;  // 返回已分配的块号
+      }
+    }
+    brelse(bp);  // 释放缓冲区
+  }
+  printf("balloc: out of blocks\n");
+  return 0;  // 如果没有可用的块，返回 0
+}
+```
+
+balloc 会遍历每个块，直到找到一个位图为 0 的空闲块，由于块是全局的，所以肯定会发生竞态条件，但是实际上，这里的 bread 和 brelse 已经为我们的块上好了锁，这里从我们之前做的实验就可以知道，所以无需担心。而这里的第一层循环表示一个位图块，包含了多个磁盘块，先从 bread 里面获取位图块，然后进入第二层循环，查找未被分配的磁盘块（每个bit表示是否被分配），如果找到了空闲块，则会做一些标记和处理，最后返回这个块号。
+
+**bfree** 则是充当了释放块的角色
+
+```c
+static void
+bfree(int dev, uint b)   // 释放磁盘块b
+{
+  struct buf *bp;        // 定义一个指向缓存缓冲区的指针bp，用于存储从磁盘读取的位图块
+  int bi, m;             // bi是块在位图中的位置，m是用来设置位图的掩码
+
+  // 从磁盘读取位图块
+  bp = bread(dev, BBLOCK(b, sb));  // 读取包含块b分配状态的位图块（位图块存储在磁盘上）
+
+  bi = b % BPB;           // 计算块b在当前位图块中的偏移位置，BPB是每个位图块包含的数据块数
+  m = 1 << (bi % 8);      // 计算位图中对应块b的掩码，bi%8是计算当前位的位移量（一个字节8位）
+
+  // 检查当前块是否已经被释放，若该块已经是空闲的，则报错
+  if((bp->data[bi / 8] & m) == 0)   // 如果对应的位为0，表示该块已经是空闲的
+    panic("freeing free block");  // 如果试图释放一个已经是空闲的块，程序崩溃（防止错误操作）
+
+  // 将位图中该位置的位设置为0，标记该块为空闲
+  bp->data[bi / 8] &= ~m;   // 更新位图，使用位掩码将该块的分配状态置为未分配（0）
+
+  log_write(bp);            // 将更新后的位图块写入日志，以便后续恢复或崩溃恢复时使用
+
+  brelse(bp);               // 释放缓冲区，完成对位图块的操作，允许其他操作使用该缓存
+}
+```
+
+这里的操作逻辑和 balloc 类似，但是我们会发现，这里都用到了 log_write 这个函数，实际上，我们之后会进行介绍，这里先不赘述。
+
+### inode 的数据结构
+
+下一步，我们需要引入 Inode 的概念，他表示一个具体的文件的基本信息，我们磁盘或者内存都会有 inode 的概念，磁盘上的 inode 由 struct dinode 定义：
+
+```c
+// On-disk inode structure
+struct dinode {
+  short type;           // 文件类型：指示这是普通文件、目录文件还是设备文件等。可能的值包括 T_FILE, T_DIR, T_DEVICE 等。
+  
+  short major;          // 设备的主设备号：仅在类型是 T_DEVICE 时有效，表示设备文件的主设备号。它用于区分不同的设备类型，如磁盘、终端等。
+
+  short minor;          // 设备的次设备号：仅在类型是 T_DEVICE 时有效，表示设备文件的次设备号。它进一步区分设备的不同实例，例如某个磁盘上的不同分区。
+
+  short nlink;          // 链接计数：表示有多少个目录项引用该 inode。如果 nlink 为 0，表示该 inode 对应的文件不再被任何目录项引用，文件可以被删除。
+
+  uint size;            // 文件大小：以字节为单位表示文件的大小，即文件内容的总字节数。
+
+  uint addrs[NDIRECT+1];   // 数据块地址：存储文件内容所在的数据块的块号。由于文件系统的设计限制，数据块的数量是固定的。`NDIRECT` 表示 **直接块地址** 的最大数量，`addrs[NDIRECT]` 是一个 **间接块地址**，用于指向更多的数据块。
+};
+```
+
+一个文件的数据有时会很大，此时就需要存储在多个磁盘块上面， addrs 存储的就是这些块的地址，每个磁盘块不能同时存多个文件的数据，只能被一个文件占用，但是一个文件可以占有多个磁盘块。
+
+我们还可以来看看内存中的 inode ：
+
+```c
+struct inode {
+  uint dev;           // 设备号：表示该 inode 所在的设备。如果文件系统存储在多个设备上，这个字段帮助区分具体的设备。
+  
+  uint inum;          // inode number：该 inode 的编号，是文件在文件系统中的唯一标识符。每个文件都有一个对应的 inode number。
+  
+  int ref;            // 引用计数：表示有多少个指针引用这个 inode。每当一个进程或文件描述符引用该 inode 时，引用计数增加，当引用计数降为 0 时，inode 会被释放。
+  
+  struct sleeplock lock; // 用于保护 inode 的字段：`lock` 是一个睡眠锁，确保多个进程/线程不能同时修改同一个 inode，避免并发冲突。
+  
+  int valid;          // inode 是否有效：表示该 inode 是否已经从磁盘读取。如果 `valid` 为 0，表示 inode 尚未从磁盘加载；为 1 表示该 inode 已经加载到内存中。
+
+  short type;         // 文件类型：表示文件的类型，例如普通文件、目录文件、设备文件等。该字段是磁盘上 inode 的副本。
+  
+  short major;        // 主设备号：仅在 `type == T_DEVICE` 时有效，表示设备文件的主设备号。用于区分设备类型（如硬盘、终端等）。
+  
+  short minor;        // 次设备号：仅在 `type == T_DEVICE` 时有效，表示设备文件的次设备号。用于区分设备的不同实例（如硬盘的多个分区）。
+  
+  short nlink;        // 链接计数：表示有多少个目录项引用该 inode。每当有新的硬链接指向该 inode 时，`nlink` 增加。当 `nlink` 为 0 时，表示该 inode 可以被删除。
+  
+  uint size;          // 文件大小：表示文件的总字节数。这个字段保存了文件的内容的大小。
+  
+  uint addrs[NDIRECT+1]; // 数据块地址：保存文件数据的磁盘块地址。`addrs[]` 数组包含了指向文件数据块的块号。`NDIRECT` 是文件系统中可以直接存储的磁盘块数量，`addrs[NDIRECT]` 存储间接地址，用来引用更多的数据块地址。
+};
+```
+
+我们内存中的 inode 会作为结构体 file 中的一部分，通过 file 我们可以得到 inode 的指针，我们可以来看看 file 结构体长啥样：
+
+```c
+struct file {
+  enum { FD_NONE, FD_PIPE, FD_INODE, FD_DEVICE } type;  
+
+  int ref;            // 引用计数：表示有多少个进程或文件描述符引用该文件。每当文件被打开时，`ref` 增加，文件关闭时，`ref` 减少，当 `ref` 为 0 时，文件资源被释放。
+
+  char readable;      // 可读标志：表示该文件是否可以进行读取操作。通常是 `1` 表示可读，`0` 表示不可读。
+
+  char writable;      // 可写标志：表示该文件是否可以进行写入操作。通常是 `1` 表示可写，`0` 表示不可写。
+
+  struct pipe *pipe;  // 管道文件（`FD_PIPE` 类型的文件）：指向管道数据结构，表示文件是一个管道。管道用于进程间通信。
+
+  struct inode *ip;   // inode 指针（`FD_INODE` 和 `FD_DEVICE` 类型的文件）：指向文件的 inode 结构体，inode 中存储了文件的元数据（如文件类型、大小、数据块地址等）。
+  
+  uint off;           // 偏移量（`FD_INODE` 类型的文件）：表示文件当前的读写偏移量。当文件进行读写时，偏移量会更新，指示文件操作的当前位置。
+
+  short major;        // 设备号（`FD_DEVICE` 类型的文件）：如果文件是设备文件，`major` 存储设备的主设备号。主设备号用于区分设备类型（例如磁盘、终端等）。对于普通文件或目录，这个字段通常不使用。
+};
+```
+
+### 关于文件的系统调用
+
+通过上面的结构体及其注释，我们可以初步的了解，当我们 open 一个文件的时候，我们的引用计数会 + 1 ，并且我们还有一个全局的 file 数组，但是却是在内存中的，我们可以通过 **open** （他也是最复杂的关于文件的系统调用）这个系统调用，来看看打开文件的时候，我们是如何对磁盘进行操作，如何对内存的 file 进程操作的。
+
+```c
+uint64
+sys_open(void)   // 打开文件的系统调用
+{
+  char path[MAXPATH];  // 存储文件路径
+  int fd, omode;       // fd: 文件描述符，omode: 打开文件时的模式（如只读、只写、读写等）
+  struct file *f;      // 指向文件结构体的指针
+  struct inode *ip;    // 指向 inode 结构体的指针，用于存储文件的元数据
+  int n;               // 文件路径的长度
+
+  // 获取参数：omode (文件打开模式)
+  argint(1, &omode);  // 获取用户传递的打开文件模式
+  // 获取路径参数
+  if((n = argstr(0, path, MAXPATH)) < 0)
+    return -1;  // 如果路径获取失败，返回 -1
+
+  begin_op();   // 开始文件系统操作
+
+  // 如果打开模式包含 O_CREATE，尝试创建文件
+  if(omode & O_CREATE){
+    // 调用 create 函数创建文件，如果创建失败返回 -1
+    ip = create(path, T_FILE, 0, 0);
+    if(ip == 0){
+      end_op();  // 结束文件系统操作
+      return -1;  // 创建失败，返回 -1
+    }
+  } else {
+    // 如果没有 O_CREATE 模式，尝试通过路径名找到文件对应的 inode
+    if((ip = namei(path)) == 0){
+      end_op();
+      return -1;  // 文件不存在，返回 -1
+    }
+    ilock(ip);   // 加锁 inode，确保文件在访问期间不被其他进程修改
+
+    // 如果文件是目录，且模式不是只读，返回 -1
+    if(ip->type == T_DIR && omode != O_RDONLY){
+      iunlockput(ip);  // 解锁并释放 inode
+      end_op();
+      return -1;  // 目录不能以写入模式打开
+    }
+  }
+
+  // 检查设备文件的有效性
+  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
+    iunlockput(ip);  // 解锁并释放 inode
+    end_op();
+    return -1;  // 无效的设备文件，返回 -1
+  }
+
+  // 分配一个文件结构体
+  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
+    if(f)
+      fileclose(f);  // 如果文件分配失败，关闭文件
+    iunlockput(ip);  // 解锁并释放 inode
+    end_op();
+    return -1;  // 文件描述符分配失败，返回 -1
+  }
+
+  // 设置文件结构体的相关字段
+  if(ip->type == T_DEVICE){  // 如果是设备文件
+    f->type = FD_DEVICE;     // 设置文件类型为设备文件
+    f->major = ip->major;    // 设置设备文件的主设备号
+  } else {  // 普通文件
+    f->type = FD_INODE;      // 设置文件类型为 inode 文件
+    f->off = 0;              // 初始化文件偏移量为 0
+  }
+
+  // 设置文件的读写权限
+  f->ip = ip;  // 将文件的 inode 赋给文件结构体
+  f->readable = !(omode & O_WRONLY);  // 如果是 O_WRONLY 模式，则不可读，否则可读
+  f->writable = (omode & O_WRONLY) || (omode & O_RDWR);  // 如果是 O_WRONLY 或 O_RDWR 模式，则可写
+
+  // 如果指定了 O_TRUNC 并且是普通文件，清空文件内容
+  if((omode & O_TRUNC) && ip->type == T_FILE){
+    itrunc(ip);  // 清空文件内容
+  }
+
+  iunlock(ip);  // 解锁 inode，文件准备好了
+  end_op();     // 结束文件系统操作
+
+  return fd;    // 返回文件描述符，文件已成功打开
+}
+```
+
+里面涉及到了很多其他的函数，我们可以来大致梳理一下 sys_open 干了些什么。
+
+首先，我们获取了打开模式的参数，比如创建，读写等，如果有创建字段，则会尝试创建文件，如果不存在文件并且具有创建字段，则会进行创建，否则，将会直接去去读取这个文件，并且分配一个 file 的结构体到内存中，最后设置一些字段则可以推出了，其中涉及到了很多关于文件很多重要的函数，并没有仔细说明，下面来看看：
+
+**create** ，这也是一个相当复杂的函数，下面给出详细的注释。
+
+```c
+// 创建文件或目录
+static struct inode* create(char *path, short type, short major, short minor)
+{
+  struct inode *ip, *dp;    // ip: 新创建的 inode，dp: 父目录的 inode
+  char name[DIRSIZ];        // 用于存储文件或目录的名字
+
+  // 获取路径的父目录和文件名
+  if((dp = nameiparent(path, name)) == 0)
+    return 0;  // 如果无法找到父目录，返回 0
+
+  ilock(dp);  // 加锁父目录
+
+  // 检查目标路径下是否已有同名文件或目录
+  if((ip = dirlookup(dp, name, 0)) != 0){
+    iunlockput(dp);  // 如果文件已经存在，解锁并释放父目录
+    ilock(ip);  // 加锁已存在的文件的 inode
+
+    // 如果是创建文件且已存在的文件类型是文件或设备文件，则返回该文件的 inode
+    if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
+      return ip;  // 文件已存在，返回该文件的 inode
+
+    iunlockput(ip);  // 如果文件类型不匹配，解锁已存在的 inode
+    return 0;  // 如果目标文件已经存在且无法创建，则返回 0
+  }
+
+  // 分配一个新的 inode（如果没有同名文件）
+  if((ip = ialloc(dp->dev, type)) == 0){
+    iunlockput(dp);  // 如果分配 inode 失败，解锁父目录并返回 0
+    return 0;
+  }
+
+  ilock(ip);  // 加锁新创建的 inode
+  ip->major = major;  // 设备文件的主设备号
+  ip->minor = minor;  // 设备文件的次设备号
+  ip->nlink = 1;      // 初始化链接计数为 1，表示有一个目录项引用此 inode
+  iupdate(ip);        // 更新 inode 的元数据
+
+  // 如果创建的是目录文件，则需要创建目录项 "." 和 ".."
+  if(type == T_DIR){  
+    // 注意：不增加 "." 的链接计数，以避免形成循环引用
+    if(dirlink(ip, ".", ip->inum) < 0 || dirlink(ip, "..", dp->inum) < 0)
+      goto fail;  // 如果 "." 或 ".." 创建失败，跳转到 fail
+  }
+
+  // 在父目录中创建新的目录项，指向新创建的 inode
+  if(dirlink(dp, name, ip->inum) < 0)
+    goto fail;  // 如果创建目录项失败，跳转到 fail
+
+  // 如果是创建目录，则更新父目录的链接计数
+  if(type == T_DIR){
+    dp->nlink++;  // 为父目录中的 ".." 目录项增加链接计数
+    iupdate(dp);  // 更新父目录的 inode
+  }
+
+  iunlockput(dp);  // 解锁并释放父目录的 inode
+
+  return ip;  // 返回新创建的文件或目录的 inode
+
+ fail:
+  // 如果在创建过程中出现任何错误，需要回滚已分配的 inode
+  ip->nlink = 0;  // 将链接计数设为 0，表示该 inode 不再有效
+  iupdate(ip);    // 更新 inode
+  iunlockput(ip); // 解锁并释放已分配的 inode
+  iunlockput(dp); // 解锁并释放父目录的 inode
+  return 0;       // 返回 0，表示创建失败
+}
+```
+
+表面的逻辑是很简单的，这里也来大致梳理一下，然后进入内部的一些函数的介绍。首先是通过 nameiparent 找到父目录，然后对其进行加锁，保证我们可以正确的读写这个文件，接下来检查是否有同名的文件，如果有，则检查类型是否一致，如果不一致，出现错误，返回 0 ，否则返回这个文件的 inode ，如果不存在，则会新分配一个 inode ，我们还需要判断创建的是否为目录，如果是，那就还需要做一系列的操作，最终才会返回我们的 inode。
+
+大致梳理完成，随后，领域展开，介绍一下 nameiparent 是如何工作的，他实际上只会调用一个 namex 函数：
+
+```c
+// 查找并返回路径名对应的 inode。
+// 如果 nameiparent != 0，返回父目录的 inode 并将路径中的最后一个元素（文件名或目录名）拷贝到 name 中。
+// name 必须有足够的空间存放目录名，至少 DIRSIZ 字节。
+// 该函数必须在事务中调用，因为它调用了 iput()。
+static struct inode* namex(char *path, int nameiparent, char *name)
+{
+  struct inode *ip, *next;
+
+  // 如果路径以 "/" 开头，表示从根目录开始查找
+  if(*path == '/')
+    ip = iget(ROOTDEV, ROOTINO);  // 获取根目录的 inode
+  else
+    ip = idup(myproc()->cwd);     // 否则，从当前工作目录开始查找
+
+  // 路径分割并逐步查找目录中的元素
+  while((path = skipelem(path, name)) != 0){  // skipelem 用于提取路径中的一个元素（如文件夹名或文件名）
+    ilock(ip);  // 加锁当前目录的 inode
+
+    // 如果当前目录的类型不是目录类型，说明路径无效，返回 0
+    if(ip->type != T_DIR){
+      iunlockput(ip);  // 解锁并释放当前目录的 inode
+      return 0;
+    }
+
+    // 如果 nameiparent 非零，且路径已经遍历到最后一个元素，则返回当前目录 inode
+    if(nameiparent && *path == '\0'){
+      iunlock(ip);  // 解锁当前目录 inode
+      return ip;    // 返回父目录的 inode
+    }
+
+    // 查找当前目录下是否存在 name 所指示的目录项
+    if((next = dirlookup(ip, name, 0)) == 0){  // dirlookup 查找目录中的文件名并返回其 inode
+      iunlockput(ip);  // 如果没有找到，解锁并释放当前目录的 inode
+      return 0;         // 返回 0，表示路径无效
+    }
+
+    iunlockput(ip);  // 解锁并释放当前目录的 inode
+    ip = next;       // 将当前目录切换为下一目录（即路径中下一个目录或文件）
+  }
+
+  // 如果 nameiparent 非零，表示我们需要返回父目录的 inode
+  if(nameiparent){
+    iput(ip);  // 释放当前目录的 inode
+    return 0;  // 返回 0，表示路径不完整（只有父目录被查找到）
+  }
+
+  return ip;  // 返回最终查找到的文件或目录的 inode
+}
+```
+
+我们这里已经很接近文件系统的一些底层函数了，我们的 namex 会返回传入的 path 的父目录（注意，我们这里的 path 包括了文件名字，并且最后文件的名字会拷贝给 name），我们的 iget 和 idup 会返回对应目录的 inode 。
+
+**iget** ，在这里，我们传入的是根目录的设备名和编号， iget 可以通过它们来实现查找对应的 inode
+
+```c
+// 在设备 dev 上查找编号为 inum 的 inode，并返回它的内存副本。
+// 此函数不加锁 inode，也不从磁盘读取 inode。
+static struct inode* iget(uint dev, uint inum)
+{
+  struct inode *ip, *empty;
+
+  // 获取 inode 表的锁
+  acquire(&itable.lock);
+
+  // 检查该 inode 是否已经在 inode 表中
+  empty = 0;
+  // 遍历 inode 表中的所有 inode
+  for(ip = &itable.inode[0]; ip < &itable.inode[NINODE]; ip++){
+    // 如果该 inode 已经在内存中，并且设备号和 inode 编号匹配
+    if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){
+      ip->ref++;  // 增加引用计数
+      release(&itable.lock);  // 释放 inode 表的锁
+      return ip;  // 返回该 inode
+    }
+    // 如果当前 inode 没有被引用，并且还没有找到空闲的 inode，则记录第一个空闲的 inode
+    if(empty == 0 && ip->ref == 0)
+      empty = ip;
+  }
+
+  // 如果没有空闲的 inode，抛出错误
+  if(empty == 0)
+    panic("iget: no inodes");
+
+  // 如果找到空闲的 inode，回收它
+  ip = empty;
+  ip->dev = dev;  // 设置设备号
+  ip->inum = inum;  // 设置 inode 编号
+  ip->ref = 1;  // 设置引用计数为 1
+  ip->valid = 0;  // 设置为无效（未从磁盘读取）
+  release(&itable.lock);  // 释放 inode 表的锁
+
+  return ip;  // 返回新获取的 inode
+}
+```
+
+如果没有在内存中找到，则会分配一个新的 inode ，并设置无效的单位，使得之后可以通过 bread 从磁盘中获取对应的数据。
+
+对于 idup ，并没有什么特别之处，因为我们可以直接将其工作目录当成父目录。
+
+我们可以在随后会调用的 ilock 中，找到 bread 的痕迹：
+
+```c
+// 锁定给定的 inode。
+// 如果该 inode 还没有从磁盘读取，函数会从磁盘加载该 inode。
+void ilock(struct inode *ip)
+{
+  struct buf *bp;          // 用来存储磁盘块的数据
+  struct dinode *dip;      // 用来存储从磁盘读取的 inode 数据
+
+  // 检查 inode 是否有效，如果无效，则抛出异常
+  if(ip == 0 || ip->ref < 1)
+    panic("ilock");
+
+  // 获取 inode 的睡眠锁，确保独占访问
+  acquiresleep(&ip->lock);
+
+  // 如果 inode 尚未加载到内存中，则从磁盘读取它
+  if(ip->valid == 0){
+    // 从磁盘读取 inode 所在的磁盘块
+    bp = bread(ip->dev, IBLOCK(ip->inum, sb));
+
+    // 通过偏移量找到当前 inode 在磁盘块中的位置
+    dip = (struct dinode*)bp->data + ip->inum % IPB;
+
+    // 将磁盘 inode 的信息复制到内存中的 inode
+    ip->type = dip->type;    // inode 类型
+    ip->major = dip->major;  // 主设备号（设备文件）
+    ip->minor = dip->minor;  // 次设备号（设备文件）
+    ip->nlink = dip->nlink;  // 链接计数
+    ip->size = dip->size;    // 文件大小
+    memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));  // 数据块地址
+
+    // 释放读取到的磁盘块
+    brelse(bp);
+
+    // 标记该 inode 已加载
+    ip->valid = 1;
+
+    // 如果 inode 的类型为 0，表示无效的 inode，抛出异常
+    if(ip->type == 0)
+      panic("ilock: no type");
+  }
+}
+```
+
+每个文件都有单独的编号，所以能够从磁盘中找到这个文件 inode 的块，至此，我们便知道了，我们是如何从文件中读取 inode 的信息了。
+
+而对于下一个我们要介绍的 skipelem ，它干的事其实很简单：
+
+```c
+// 从路径 path 中提取下一个路径元素，并将其存储到 name 中。
+// 返回指向下一个路径元素的指针（去掉前导斜杠）。
+// 如果路径已经结束，返回 0。
+// 如果没有路径元素可提取，返回 0。
+//
+// 函数会跳过路径中的多余斜杠（例如 `///`），并且返回的路径没有前导斜杠。
+// 调用者可以通过检查 *path == '\0' 来判断是否已经到达路径的最后一个元素。
+//
+// 示例：
+//   skipelem("a/bb/c", name) = "bb/c", 设置 name = "a"
+//   skipelem("///a//bb", name) = "bb", 设置 name = "a"
+//   skipelem("a", name) = "", 设置 name = "a"
+//   skipelem("", name) = skipelem("////", name) = 0
+//
+static char* skipelem(char *path, char *name)
+{
+  char *s;         // 用来存储当前路径元素的起始位置
+  int len;         // 存储当前路径元素的长度
+
+  // 跳过路径开头的所有斜杠
+  while(*path == '/')
+    path++;
+
+  // 如果路径已经结束，返回 0
+  if(*path == 0)
+    return 0;
+
+  // 记录路径元素的起始位置
+  s = path;
+
+  // 找到下一个斜杠或路径的结尾
+  while(*path != '/' && *path != 0)
+    path++;
+
+  // 计算当前路径元素的长度
+  len = path - s;
+
+  // 如果路径元素的长度大于或等于 DIRSIZ（最大目录项大小），则只取前 DIRSIZ 个字符
+  if(len >= DIRSIZ)
+    memmove(name, s, DIRSIZ);  // 将路径元素拷贝到 name 中
+  else {
+    memmove(name, s, len);  // 将路径元素拷贝到 name 中
+    name[len] = 0;          // 在 name 末尾加上字符串结束符
+  }
+
+  // 跳过路径中的多余斜杠
+  while(*path == '/')
+    path++;
+
+  // 返回指向下一个路径元素的指针
+  return path;
+}
+```
+
+光是通过 xv6 的注释，我们就可以掠过这部分代码了，我们的 skipelem 做的事情就是提取和分离父目录下一级的文件或者目录，在 namex 中，直到找到文件或者发现文件不存在，否则会一直循环调用。
+
+从 namex 中我们可以知道，dirlookup 在循环中扮演了重要的角色，所以我们可以看看 dirlookup 干了什么：
+
+```c
+// 父目录 dp 中查找名称为 name 的文件，并返回这个文件的 inode 
+struct inode* dirlookup(struct inode *dp, char *name, uint *poff)
+{
+  uint off, inum;           // off: 目录项的字节偏移量，inum: 查找到的目录项的 inode 编号
+  struct dirent de;         // 存储目录项的数据结构
+
+  // 如果 dp 不是目录类型，直接 panic
+  if(dp->type != T_DIR)
+    panic("dirlookup not DIR");
+
+  // 遍历目录 dp 中的所有目录项
+  for(off = 0; off < dp->size; off += sizeof(de)){  // 每次读取一个目录项，偏移量递增
+    // 从目录 dp 中读取目录项到 de 结构体
+    if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+      panic("dirlookup read");  // 如果读取失败，抛出异常
+
+    if(de.inum == 0)
+      continue;  // 如果目录项的 inode 编号为 0，表示该位置为空，跳过该目录项
+
+    // 比较目录项的名字与目标名字是否匹配
+    if(namecmp(name, de.name) == 0){
+      // 如果匹配，则返回当前目录项的 inode
+      if(poff)
+        *poff = off;  // 如果提供了 poff 参数，则保存目录项的字节偏移量
+
+      inum = de.inum;  // 获取目录项的 inode 编号
+      return iget(dp->dev, inum);  // 通过 inode 编号获取 inode，并返回
+    }
+  }
+
+  return 0;  // 如果没有找到匹配的目录项，返回 0
+}
+```
+
+dirlookup 利用之前读取的更上一级目录的 inode ，随后在这个 inode 里面读取之前 skipelem 得到的 文件名，并且返回这个文件的 inode ，方便下一层查找。
+
+综上所述，我们的 namex 实际上就是找到了这个文件上一级的目录的 inode ，我们返回调用 namex 的函数 -- create 。
+
+之后我们又调用了一遍 dirlookup ，这是为了检查我们需要创建的文件是否已经存在，如果存在，我们就返回对应的 inode ，如果发现文件类型不匹配，返回错误。
+
+然后则会调用 ialloc 分配一个 inode 结构体：
+
+```c
+// 在设备 dev 上分配一个 inode，并将其类型设置为 type。
+// 返回一个已分配并引用计数已增加的 inode，
+// 如果没有空闲的 inode，则返回 NULL。
+struct inode* ialloc(uint dev, short type)
+{
+  int inum;              // 存储当前检查的 inode 编号
+  struct buf *bp;        // 用于存储读取的磁盘块数据
+  struct dinode *dip;    // 指向磁盘上 inode 数据结构的指针
+
+  // 遍历所有 inode，寻找空闲的 inode
+  for(inum = 1; inum < sb.ninodes; inum++){
+    // 从磁盘上读取包含当前 inode 的磁盘块
+    bp = bread(dev, IBLOCK(inum, sb));
+    
+    // 计算当前 inode 在磁盘块中的位置
+    dip = (struct dinode*)bp->data + inum % IPB;
+    
+    // 如果找到空闲的 inode（类型为 0），则分配该 inode
+    if(dip->type == 0){  // 表示该 inode 是空闲的
+      memset(dip, 0, sizeof(*dip));  // 将 inode 数据清零（初始化）
+      dip->type = type;  // 设置 inode 的类型为传入的 type（表示分配）
+      
+      log_write(bp);  // 将修改后的磁盘块写入日志，表示 inode 已分配
+      brelse(bp);  // 释放读取的磁盘块缓冲区
+      return iget(dev, inum);  // 返回已分配且引用计数已增加的 inode
+    }
+    
+    brelse(bp);  // 释放读取的磁盘块缓冲区
+  }
+  
+  // 如果没有找到空闲的 inode，打印错误信息并返回 NULL
+  printf("ialloc: no inodes\n");
+  return 0;  // 返回 NULL，表示没有可用的 inode
+}
+```
+
+我们又发现了这里有一个 sb 的结构体，实际上，这是一个全局的数据结构，叫做**超级块**，存储着所有文件的元数据，也就是 inode 的数据，不包含真实的文件数据，这里使用了一个宏 IBLOCK ，代表着找到对应的 inode 块，而之前 balloc 实行位图分配的时候则是使用的 BBLOCK 则会找到对应的位图块，他们都位于超级块上。
+
+回到这里，我们现在从超级块中找到一个空闲的磁盘块，此时我们还没有将数据写入进去，而是写入了内存中的缓冲层，我们之后调用 iget ，在这里，这个 iget 会发现我们的 inode 表中不存在这个内存缓冲表中，此时会为其设置一些标志位。
+
+```c
+// 查找并返回设备 dev 上编号为 inum 的 inode 的内存副本。
+// 如果 inode 已经在内存中，则返回其内存副本；
+// 如果 inode 不在内存中，则回收一个空闲的 inode 位置，
+// 并初始化它，但不会从磁盘读取数据，也不会加锁。
+static struct inode* iget(uint dev, uint inum)
+{
+  struct inode *ip, *empty;  // ip 是查找的 inode 指针，empty 是空闲 inode 的指针
+
+  acquire(&itable.lock);  // 获取 inode 缓存表的锁，确保线程安全
+
+  // 检查 inode 是否已经在内存缓存表中
+  empty = 0;  // 初始化空闲 inode 指针为空
+  for(ip = &itable.inode[0]; ip < &itable.inode[NINODE]; ip++){
+    // 如果 inode 已经在内存缓存中，并且引用计数大于 0，设备号和 inode 编号匹配
+    if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){
+      ip->ref++;  // 引用计数加 1，表示该 inode 被一个新的引用使用
+      release(&itable.lock);  // 释放 inode 缓存表的锁
+      return ip;  // 返回内存中已存在的 inode
+    }
+    
+    // 记录第一个空闲的 inode（引用计数为 0）
+    if(empty == 0 && ip->ref == 0)
+      empty = ip;
+  }
+
+  // 如果没有找到空闲的 inode 位置，抛出错误
+  if(empty == 0)
+    panic("iget: no inodes");  // 缓存表已满，没有可用的 inode
+
+  ip = empty;  // 使用空闲的 inode
+  ip->dev = dev;  // 设置 inode 的设备号
+  ip->inum = inum;  // 设置 inode 的编号
+  ip->ref = 1;  // 引用计数设置为 1，表示当前 inode 被引用
+  ip->valid = 0;  // 设置 inode 为无效状态，待加载数据时才有效
+
+  release(&itable.lock);  // 释放 inode 缓存表的锁
+
+  return ip;  // 返回新的 inode
+}
+```
+
+这里，相当于真正的分配了一个 inode 了。
+
+随后又回到 create ，我们真的为这个文件分配了一个 inode ，那么之后通过 ilock和 iupdate 等等一系列标志位的设置，也就是初始化。最后，我们还需要特殊处理关于创建目录的操作，也就是 dirlink ：
+
+```c
+// 将新的目录项（包括文件名 name 和 inode 编号 inum）写入到目录 dp。
+// 成功时返回 0，失败时返回 -1（例如：磁盘空间不足）。
+int dirlink(struct inode *dp, char *name, uint inum)
+{
+  int off;  // 偏移量，表示目录项在目录中的位置
+  struct dirent de;  // 用于存储目录项的结构体
+  struct inode *ip;  // 临时 inode 用于检查目录项是否已存在
+
+  // 检查目录中是否已经存在该文件名
+  if((ip = dirlookup(dp, name, 0)) != 0){
+    iput(ip);  // 如果目录项已存在，释放引用并返回错误
+    return -1;
+  }
+
+  // 查找目录中是否有空闲的目录项
+  for(off = 0; off < dp->size; off += sizeof(de)){
+    // 读取目录中的每个目录项
+    if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+      panic("dirlink read");  // 如果读取失败，触发 panic（系统崩溃）
+
+    // 如果遇到未使用的目录项（inode 编号为 0），则是空闲位置
+    if(de.inum == 0)
+      break;  // 找到空闲位置，跳出循环
+  }
+
+  // 设置新的目录项内容
+  strncpy(de.name, name, DIRSIZ);  // 将文件名复制到目录项中
+  de.inum = inum;  // 设置目录项的 inode 编号
+
+  // 将新的目录项写回到磁盘中
+  if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
+    return -1;  // 如果写入失败，返回错误
+
+  return 0;  // 返回 0 表示成功
+}
+
+```
+
+此处是给目录添加一个目录项，主要是为了让 `cd ..` 和 `cd .` 正常工作，关于 create 到这里就大致介绍完了，回到我们的 `sys_open` 所以说 open 这个系统调用不愧是最复杂的，到目前为止，仅仅分析了前面一部分。但是其实，后面的调用逻辑都是比较简单的，没有 create 这样复杂。
+
+为了方便查看，在这里再放一份 `sys_open` 的代码：
+
+```c
+uint64
+sys_open(void)   // 打开文件的系统调用
+{
+  char path[MAXPATH];  // 存储文件路径
+  int fd, omode;       // fd: 文件描述符，omode: 打开文件时的模式（如只读、只写、读写等）
+  struct file *f;      // 指向文件结构体的指针
+  struct inode *ip;    // 指向 inode 结构体的指针，用于存储文件的元数据
+  int n;               // 文件路径的长度
+
+  // 获取参数：omode (文件打开模式)
+  argint(1, &omode);  // 获取用户传递的打开文件模式
+  // 获取路径参数
+  if((n = argstr(0, path, MAXPATH)) < 0)
+    return -1;  // 如果路径获取失败，返回 -1
+
+  begin_op();   // 开始文件系统操作
+
+  // 如果打开模式包含 O_CREATE，尝试创建文件
+  if(omode & O_CREATE){
+    // 调用 create 函数创建文件，如果创建失败返回 -1
+    ip = create(path, T_FILE, 0, 0);
+    if(ip == 0){
+      end_op();  // 结束文件系统操作
+      return -1;  // 创建失败，返回 -1
+    }
+  } else {
+    // 如果没有 O_CREATE 模式，尝试通过路径名找到文件对应的 inode
+    if((ip = namei(path)) == 0){
+      end_op();
+      return -1;  // 文件不存在，返回 -1
+    }
+    ilock(ip);   // 加锁 inode，确保文件在访问期间不被其他进程修改
+
+    // 如果文件是目录，且模式不是只读，返回 -1
+    if(ip->type == T_DIR && omode != O_RDONLY){
+      iunlockput(ip);  // 解锁并释放 inode
+      end_op();
+      return -1;  // 目录不能以写入模式打开
+    }
+  }
+
+  // 检查设备文件的有效性
+  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
+    iunlockput(ip);  // 解锁并释放 inode
+    end_op();
+    return -1;  // 无效的设备文件，返回 -1
+  }
+
+  // 分配一个文件结构体
+  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
+    if(f)
+      fileclose(f);  // 如果文件分配失败，关闭文件
+    iunlockput(ip);  // 解锁并释放 inode
+    end_op();
+    return -1;  // 文件描述符分配失败，返回 -1
+  }
+
+  // 设置文件结构体的相关字段
+  if(ip->type == T_DEVICE){  // 如果是设备文件
+    f->type = FD_DEVICE;     // 设置文件类型为设备文件
+    f->major = ip->major;    // 设置设备文件的主设备号
+  } else {  // 普通文件
+    f->type = FD_INODE;      // 设置文件类型为 inode 文件
+    f->off = 0;              // 初始化文件偏移量为 0
+  }
+
+  // 设置文件的读写权限
+  f->ip = ip;  // 将文件的 inode 赋给文件结构体
+  f->readable = !(omode & O_WRONLY);  // 如果是 O_WRONLY 模式，则不可读，否则可读
+  f->writable = (omode & O_WRONLY) || (omode & O_RDWR);  // 如果是 O_WRONLY 或 O_RDWR 模式，则可写
+
+  // 如果指定了 O_TRUNC 并且是普通文件，清空文件内容
+  if((omode & O_TRUNC) && ip->type == T_FILE){
+    itrunc(ip);  // 清空文件内容
+  }
+
+  iunlock(ip);  // 解锁 inode，文件准备好了
+  end_op();     // 结束文件系统操作
+
+  return fd;    // 返回文件描述符，文件已成功打开
+}
+```
+
+随后，如果没有 create 这一字段，我们则会直接通过调用 namei 去找到对应的 inode ，这里的 namei 其实就是调用了之前介绍的 namex ，然后进行一系列检查，包括是否可读，可写，还需要将其写入到 file 数组等一系列操作，我们最终，会返回这个文件的文件描述符 fd 。
+
+这里还有一些有意思的调用，比如 filealloc ：
+
+```c
+// 分配一个新的文件结构体并返回其指针
+struct file* filealloc(void)
+{
+  struct file *f;  // 临时文件指针，用于遍历文件表
+
+  acquire(&ftable.lock);  // 获取文件表的锁，确保线程安全
+
+  // 遍历文件表中的每个文件结构体，寻找一个引用计数为 0 的文件结构体
+  for(f = ftable.file; f < ftable.file + NFILE; f++){
+    if(f->ref == 0){  // 如果文件结构体的引用计数为 0，表示该文件结构体未被使用
+      f->ref = 1;  // 设置该文件结构体的引用计数为 1，表示它正在被使用
+      release(&ftable.lock);  // 释放文件表的锁，允许其他线程访问文件表
+      return f;  // 返回找到的文件结构体
+    }
+  }
+
+  release(&ftable.lock);  // 如果没有找到空闲的文件结构体，释放文件表的锁
+  return 0;  // 如果文件表已满，返回 0，表示没有可用的文件结构体
+}
+```
+
+如上，我们从全局的 file 中分配了一个未被使用的 file ，在 `sys_open` 中，我们还会将他初始化，这里就不多赘述，当我们决定关闭一个文件的时候，我们会调用 fileclose ：
+
+```c
+// 关闭文件 f。 (减少引用计数，当引用计数为0时关闭文件)
+void
+fileclose(struct file *f)
+{
+  struct file ff;
+
+  // 获取文件表锁，确保操作线程安全
+  acquire(&ftable.lock);
+
+  // 检查文件引用计数是否小于1，如果是，说明文件没有被正确引用，触发panic
+  if(f->ref < 1)
+    panic("fileclose");
+
+  // 减少引用计数
+  if(--f->ref > 0){
+    // 如果引用计数仍大于0，释放锁并返回
+    release(&ftable.lock);
+    return;
+  }
+
+  // 将文件结构复制到临时变量 ff 中，以便后续操作
+  ff = *f;
+
+  // 将原文件的引用计数设为0，并标记文件类型为FD_NONE，表示文件已关闭
+  f->ref = 0;
+  f->type = FD_NONE;
+
+  // 释放文件表锁
+  release(&ftable.lock);
+
+  // 如果文件类型是管道，则调用pipeclose关闭管道
+  if(ff.type == FD_PIPE){
+    pipeclose(ff.pipe, ff.writable);
+  } 
+  // 如果文件类型是inode或设备文件，则进行相应处理
+  else if(ff.type == FD_INODE || ff.type == FD_DEVICE){
+    // 开始一个文件系统操作
+    begin_op();
+    // 释放inode并更新文件系统
+    iput(ff.ip);
+    // 完成文件系统操作
+    end_op();
+  }
+}
+```
+
+我们会发现，我们最终的文件写入磁盘是在 fileclose 的时候，这样就减少了我们频繁的磁盘的 I/O ，而我们在打开文件描述符的之后，都是通过缓存块进行读写，所以此时并没有什么不一致的问题，但是如果操作系统突然崩溃，那就不一定了。
+
+我们可以看看 iput 是如何写入磁盘的：
+
+```c
+// 释放一个内存中的inode引用。
+// 如果这是最后一个引用，inode表项可以被回收。
+// 如果这是最后一个引用，并且该inode没有链接指向它，则在磁盘上释放inode（及其内容）。
+// 所有调用iput()的地方必须在事务中进行，以防它需要释放inode。
+void
+iput(struct inode *ip)
+{
+  // 获取inode表的锁，确保操作的线程安全
+  acquire(&itable.lock);
+
+  // 如果这是唯一的引用且inode有效，并且没有其他链接指向它
+  if(ip->ref == 1 && ip->valid && ip->nlink == 0){
+    // 该inode没有链接且没有其他引用：截断并释放。
+
+    // ip->ref == 1表示没有其他进程持有inode的锁，
+    // 所以acquiresleep()不会阻塞或发生死锁。
+    acquiresleep(&ip->lock);
+
+    // 释放inode表的锁，因为操作需要访问inode的内部结构
+    release(&itable.lock);
+
+    // 截断inode所指向的文件内容，释放占用的磁盘块
+    itrunc(ip);
+
+    // 将inode的类型设置为0，表示该inode未分配
+    ip->type = 0;
+
+    // 更新inode，将它的元数据写回磁盘
+    iupdate(ip);
+
+    // 将inode标记为无效
+    ip->valid = 0;
+
+    // 释放inode的锁
+    releasesleep(&ip->lock);
+
+    // 重新获取inode表的锁，以便继续进行后续操作
+    acquire(&itable.lock);
+  }
+
+  // 减少inode的引用计数
+  ip->ref--;
+
+  // 释放inode表的锁
+  release(&itable.lock);
+}
+
+```
+
+其中，忽视掉不重要的部分，我们只需要关心 iupdate 即可
+
+```c
+// 将修改后的内存中的inode写回磁盘。
+// 必须在每次更改ip->xxx字段后调用，该字段会持久化到磁盘。
+// 调用者必须持有ip->lock锁。
+void
+iupdate(struct inode *ip)
+{
+  struct buf *bp;
+  struct dinode *dip;
+
+  // 读取对应inode所在磁盘块的数据
+  bp = bread(ip->dev, IBLOCK(ip->inum, sb));
+
+  // 获取该inode在磁盘块中的位置
+  dip = (struct dinode*)bp->data + ip->inum % IPB;
+
+  // 将内存中的inode字段复制到磁盘的inode结构中
+  dip->type = ip->type;
+  dip->major = ip->major;
+  dip->minor = ip->minor;
+  dip->nlink = ip->nlink;
+  dip->size = ip->size;
+  memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
+
+  // 将修改后的磁盘块写入日志，确保数据持久化
+  log_write(bp);
+
+  // 释放磁盘块的缓存
+  brelse(bp);
+}
+```
+
+在这里，我们会将修改后的磁盘块写入日志，并且保存我们的数据到缓存块中。
+
+为什么需要日志？这是我们在后面的一个问题，我们在这里并没有发现实际的写入磁盘，为什么？事实上，我们在读写文件的时候，需要处于事务之中，直到我们 commit 的时候，才会真正的写入磁盘，这和我们的 MySQL 的事务很像，在这里，事务结束的标志就是 `end_op` 。
+
+```c
+// 在每个文件系统系统调用结束时调用。
+// 如果这是最后一个未完成的操作，则提交事务。
+void
+end_op(void)
+{
+  int do_commit = 0;
+
+  // 获取日志的锁，确保操作的线程安全
+  acquire(&log.lock);
+
+  // 减少未完成操作的计数
+  log.outstanding -= 1;
+
+  // 如果日志正在提交，触发panic，因为不能同时进行提交
+  if(log.committing)
+    panic("log.committing");
+
+  // 如果没有剩余的未完成操作，表示所有操作都已完成
+  if(log.outstanding == 0){
+    do_commit = 1;        // 标记为需要提交日志
+    log.committing = 1;   // 设置日志正在提交
+  } else {
+    // 如果还有其他操作未完成，可能有其他操作在等待日志空间，
+    // 通过减少 log.outstanding 来释放已预留的空间。
+    wakeup(&log);         // 唤醒等待日志的线程
+  }
+
+  // 释放日志的锁，避免长时间持有锁
+  release(&log.lock);
+
+  // 如果需要提交事务，则调用commit函数
+  if(do_commit){
+    // 在不持有锁的情况下调用commit()，因为不能在持有锁时进行睡眠
+    commit();
+
+    // 重新获取日志锁，确保接下来的操作安全
+    acquire(&log.lock);
+
+    // 设置日志提交状态为未提交，表示日志已提交完成
+    log.committing = 0;
+
+    // 唤醒其他等待日志的线程
+    wakeup(&log);
+
+    // 释放日志的锁
+    release(&log.lock);
+  }
+}
+```
+
+其中，最核心的就是 commit 函数：
+
+```c
+// 提交日志事务，将修改的文件系统操作写入磁盘。
+// 该函数在end_op中调用，用于将所有操作持久化到磁盘。
+static void
+commit()
+{
+  // 如果日志头（log.lh）中有待写入的操作（n > 0），表示有待提交的事务
+  if (log.lh.n > 0) {
+    // 将修改的缓存块写入日志
+    write_log();   // 将缓存中修改的块写入日志
+
+    // 将日志头信息写入磁盘，标记实际的提交
+    write_head();  // 写入日志头到磁盘，完成真正的提交
+
+    // 安装事务：将所有日志中的操作应用到磁盘的实际位置（即进行持久化）
+    install_trans(0); // 将日志中的修改应用到实际的数据块（安装到磁盘位置）
+
+    // 重置日志头中的事务计数，表示事务已完成
+    log.lh.n = 0;
+
+    // 再次写入日志头，清除已提交的事务信息
+    write_head();  // 将日志头更新为清除状态，表示事务已完成
+  }
+}
+```
+
+我们在 write_log 里面会将我们之前操作过的日志全部写入日志的磁盘缓存块，随后写入磁盘：
+
+```c
+// 将修改的缓存块写入日志区域（磁盘）。
+static void
+write_log(void)
+{
+  int tail;
+
+  // 遍历日志中的每一个缓存块
+  for (tail = 0; tail < log.lh.n; tail++) {
+    // 读取对应的日志块（存储日志的磁盘块）
+    struct buf *to = bread(log.dev, log.start + tail + 1);  // 读取日志块
+
+    // 从日志头获取每个修改过的块的位置（缓存块）
+    struct buf *from = bread(log.dev, log.lh.block[tail]);  // 获取缓存块的磁盘位置
+
+    // 将修改后的缓存块的数据复制到日志块中
+    memmove(to->data, from->data, BSIZE);
+
+    // 将日志块写回磁盘，持久化到日志设备
+    bwrite(to);  // 写入日志块
+
+    // 释放缓存块
+    brelse(from);
+    brelse(to);
+  }
+}
+```
+
+最后，我们将数据写入磁盘块的是 `install_trans` ：
+
+```c
+// 将已提交的日志块从日志区域复制到它们的目标位置（即实际的磁盘数据块）。
+// 如果正在恢复操作（即系统崩溃后），则不会解除对目标缓存块的固定（pin），
+// 否则会解除固定。
+// 参数recovering：如果是崩溃恢复，传入1；如果是正常提交，传入0。
+static void
+install_trans(int recovering)
+{
+  int tail;
+
+  // 遍历日志中的每个块
+  for (tail = 0; tail < log.lh.n; tail++) {
+    // 读取日志块（从日志磁盘块中读取数据）
+    struct buf *lbuf = bread(log.dev, log.start + tail + 1);  // 从日志设备读取日志块
+
+    // 读取目标数据块（目标数据块是日志中记录的修改位置）
+    struct buf *dbuf = bread(log.dev, log.lh.block[tail]);  // 从磁盘读取目标位置的块
+
+    // 将日志块的数据复制到目标数据块
+    memmove(dbuf->data, lbuf->data, BSIZE);  // 将日志中的数据复制到目标数据块
+
+    // 将修改后的目标数据块写入磁盘
+    bwrite(dbuf);  // 将目标数据块写入磁盘
+
+    // 如果不是崩溃恢复操作，解除目标数据块的固定（pin）
+    if (recovering == 0)
+      bunpin(dbuf);  // 解除固定（允许该缓存块被其他进程使用）
+
+    // 释放日志块和目标数据块的缓存
+    brelse(lbuf);
+    brelse(dbuf);
+  }
+}
+```
+
+我们会发现，这里竟然是通过 log.dev 进行索引的，那我们回到最开始的代码会发现，根本没有使用 log.dev 去查找我们的磁盘缓存块，要回答这个问题，我们得回到我们之前没有读过的函数
+
+> iget -> iupdate -> log_write
+
+```c
+// 将缓冲区 b 写入日志。记录块号并通过增加引用计数将其固定（pin）在缓存中。
+// 在文件系统提交时，commit()/write_log() 会将修改写入磁盘。
+// log_write() 替代了 bwrite()；典型的使用方式是：
+//   bp = bread(...)
+//   修改 bp->data[]
+//   log_write(bp)
+//   brelse(bp)
+void
+log_write(struct buf *b)
+{
+  int i;
+
+  // 获取日志锁，确保日志的线程安全
+  acquire(&log.lock);
+
+  // 检查当前事务是否太大，超出了日志的容量限制
+  if (log.lh.n >= LOGSIZE || log.lh.n >= log.size - 1)
+    panic("too big a transaction");  // 如果日志中已有的块数量超过最大容量，则触发 panic
+
+  // 检查是否处于有效的事务中，如果不在事务中，则触发 panic
+  if (log.outstanding < 1)
+    panic("log_write outside of trans");
+
+  // 检查当前块是否已经在日志中，如果已经存在，则跳过，否则继续添加
+  for (i = 0; i < log.lh.n; i++) {
+    if (log.lh.block[i] == b->blockno)   // 如果当前块已经在日志中，表示日志吸收（忽略重复）
+      break;
+  }
+
+  // 将当前块的块号记录到日志中
+  log.lh.block[i] = b->blockno;
+
+  // 如果当前块不在日志中，添加到日志并固定（pin）该缓存块
+  if (i == log.lh.n) {  // 如果当前块是新的块，需要添加到日志
+    bpin(b);  // 固定该缓存块（增加引用计数）
+    log.lh.n++;  // 增加日志中的块数量
+  }
+
+  // 释放日志锁，允许其他线程操作日志
+  release(&log.lock);
+}
+```
+
+这里，我们会将我们的一个 log 的 block 更新成我们的数据缓存块对应的 block 编号。所以此时，我们并不需要根据我们的文件对应的 dev 和 blockno 传入 commit ，而只需要根据 log 的编号找到对应的磁盘缓存块，随后进行写入磁盘就可以了。
+
+到这里，其实关于文件系统的大多数函数都已经介绍完了，值得一提的另一个函数是 bmap ，他会在 writei 和 readi 里面进行调用，我们常常会在 write 和 read 系统调用中看见这两个函数，但是这两个都是关于文件的，所以当时并没有详细介绍，这里先只看一个 writei ：
+
+```c
+// 将数据写入 inode。
+// 调用者必须持有 ip->lock。
+// 如果 user_src == 1, 则 src 是用户虚拟地址；否则，src 是内核地址。
+// 返回成功写入的字节数。
+// 如果返回值小于请求的 n，说明发生了某种错误。
+int
+writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
+{
+  uint tot, m;
+  struct buf *bp;
+
+  // 如果偏移量超过 inode 的文件大小，或者偏移量 + 写入字节数小于偏移量，返回错误
+  // 以及如果文件大小超出了最大限制，返回错误
+  if(off > ip->size || off + n < off)
+    return -1;
+  if(off + n > MAXFILE*BSIZE)
+    return -1;
+
+  // 循环写入数据
+  for(tot=0; tot<n; tot+=m, off+=m, src+=m){
+    // 获取映射的磁盘块地址
+    uint addr = bmap(ip, off/BSIZE);
+    if(addr == 0)  // 如果没有地址（意味着磁盘空间不足），退出
+      break;
+
+    // 读取该块到缓冲区
+    bp = bread(ip->dev, addr);
+
+    // 计算每次写入的字节数，最多写入块大小减去当前偏移量
+    m = min(n - tot, BSIZE - off % BSIZE);
+
+    // 将数据从用户空间或内核空间拷贝到缓冲区
+    if(either_copyin(bp->data + (off % BSIZE), user_src, src, m) == -1) {
+      brelse(bp);  // 释放缓冲区
+      break;  // 出现错误时退出循环
+    }
+
+    // 将数据写入日志
+    log_write(bp);
+
+    // 释放缓冲区
+    brelse(bp);
+  }
+
+  // 如果写入后，文件的偏移量大于当前的 inode 大小，则更新 inode 的大小
+  if(off > ip->size)
+    ip->size = off;
+
+  // 写回 inode 到磁盘，即使大小没有改变，因为循环可能已经通过 bmap() 为 inode 添加了新的数据块
+  iupdate(ip);
+
+  // 返回写入的总字节数
+  return tot;
+}
+```
+
+这里我们主要是传入一个地址，表示源数据，将其写入到文件中，而我们的 bmap 主要的作用，就是通过偏移量和文件的 inode 去获取对应的磁盘块的地址，以此来得到对应的磁盘缓存块，随后便可以将数据从源地址写入这个磁盘缓存块：
+
+```c
+// inode 内容的映射：
+// 每个 inode 对应的内容（数据）存储在磁盘的块中。
+// 前 NDIRECT 个块号保存在 ip->addrs[] 中，接下来的 NINDIRECT 个块保存在 ip->addrs[NDIRECT] 中。
+//
+// 返回 inode ip 中第 nth 个块的磁盘块地址。
+// 如果该块不存在，bmap 会为其分配一个新块。
+// 如果磁盘空间已满，返回 0。
+
+static uint
+bmap(struct inode *ip, uint bn)
+{
+  uint addr, *a;
+  struct buf *bp;
+
+  // 如果访问的块小于 NDIRECT，直接使用 ip->addrs[] 中存储的块号
+  if(bn < NDIRECT){
+    // 如果该块未分配（addr == 0），则为该块分配一个新的磁盘块
+    if((addr = ip->addrs[bn]) == 0){
+      addr = balloc(ip->dev);  // balloc 函数为该块分配磁盘空间
+      if(addr == 0)            // 如果分配失败，返回 0（表示磁盘空间不足）
+        return 0;
+      ip->addrs[bn] = addr;    // 将分配的块地址存储在 ip->addrs[bn] 中
+    }
+    return addr;  // 返回该块的磁盘块地址
+  }
+
+  // 如果访问的块超过 NDIRECT，使用间接块来查找
+  bn -= NDIRECT;  // 跳过前 NDIRECT 个直接块
+
+  // 如果块号仍然在 NINDIRECT 范围内，加载间接块
+  if(bn < NINDIRECT){
+    // 如果 inode 的间接块未分配，分配一个新的间接块
+    if((addr = ip->addrs[NDIRECT]) == 0){
+      addr = balloc(ip->dev);  // 为间接块分配空间
+      if(addr == 0)            // 如果分配失败，返回 0
+        return 0;
+      ip->addrs[NDIRECT] = addr;  // 将间接块的地址保存到 ip->addrs[NDIRECT] 中
+    }
+    // 读取间接块
+    bp = bread(ip->dev, addr);  // 从磁盘读取间接块
+    a = (uint*)bp->data;  // 获取间接块的指针数组，存储块号
+    // 如果间接块中对应的块未分配，为其分配一个新的磁盘块
+    if((addr = a[bn]) == 0){
+      addr = balloc(ip->dev);  // 为该块分配磁盘空间
+      if(addr){
+        a[bn] = addr;  // 更新间接块中的块号
+        log_write(bp);  // 将修改写入日志
+      }
+    }
+    brelse(bp);  // 释放缓冲区
+    return addr;  // 返回该块的磁盘块地址
+  }
+
+  // 如果请求的块号超出范围，触发 panic
+  panic("bmap: out of range");
+}
+```
+
+很容易可以看见，和我们之前介绍过的 inode 的 addrs 有关，我们通过传入的偏移量，可以找到对应的磁盘块 addr ，如果没有分配，则使用 balloc 分配一个磁盘块就可以了，至于 balloc 则是我们最开始就已经介绍的函数了，这里就不多讲了。
+
+其中涉及到很多关于锁的设计，我都没有细讲，因为我觉得这里主要是关于文件系统的内容，感觉如果再对锁讲解，就太过繁琐了，这方面，关于 xv6 的教材倒是很详细。
