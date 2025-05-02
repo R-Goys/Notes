@@ -20,3 +20,31 @@ func maxSubArray(nums []int) int {
 }
 ```
 
+二刷，这里的意思是如果前缀的贡献小于零，那么我们就需要舍去前面的前缀，从当前数字重新计算。
+
+```go
+func maxSubArray(nums []int) int {
+    n := len(nums)
+    pre, MaxVal := nums[0], nums[0]
+    for i := 1; i < n; i ++ {
+        pre = max(nums[i], pre + nums[i])
+        MaxVal = max(MaxVal, pre)
+    }
+    return MaxVal
+}
+```
+
+另一种做法是保存前缀的最小值，然后使用当前的前缀去减去前缀最小值。
+
+```go
+func maxSubArray(nums []int) int {
+    pre, Max, Min := 0, -111111, 0
+    for i := 0; i < len(nums); i ++ {
+        Min = min(Min, pre)
+        pre += nums[i]
+        Max = max(pre - Min, Max)
+    }
+    return Max
+}
+```
+
