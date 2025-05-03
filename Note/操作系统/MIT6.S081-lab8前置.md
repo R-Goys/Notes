@@ -1091,7 +1091,23 @@ struct inode* ialloc(uint dev, short type)
 }
 ```
 
-我们又发现了这里有一个 sb 的结构体，实际上，这是一个全局的数据结构，叫做**超级块**，存储着所有文件的元数据，也就是 inode 的数据，不包含真实的文件数据，这里使用了一个宏 IBLOCK ，代表着找到对应的 inode 块，而之前 balloc 实行位图分配的时候则是使用的 BBLOCK 则会找到对应的位图块，他们都位于超级块上。
+这里使用了一个宏 IBLOCK ，代表着找到对应的 inode 块，而之前 balloc 实行位图分配的时候则是使用的 BBLOCK 则会找到对应的位图块，他们都位于超级块上。
+
+我们又发现了这里有一个 sb 的结构体，实际上，这是一个全局的数据结构，叫做**超级块**，我们可以看看它的数据结构：
+
+```c
+// 超级块（superblock）结构：描述文件系统的布局和基本信息
+struct superblock {
+  uint magic;        // 文件系统的魔术数字，必须是 FSMAGIC，用于验证文件系统的合法性
+  uint size;         // 文件系统镜像的总大小（以块为单位）
+  uint nblocks;      // 数据块的数量，即文件系统中可以存储数据的块数
+  uint ninodes;      // inode 的数量，文件系统可以管理的文件数量（每个文件、目录等都有一个对应的 inode）
+  uint nlog;         // 日志块的数量，用于存储文件系统的变更日志，确保数据的一致性
+  uint logstart;     // 日志块的起始位置，即日志区开始的块号
+  uint inodestart;   // inode 区的起始位置，即存储 inode 的区域的块号
+  uint bmapstart;    // 空闲位图的起始位置，表示哪些块是空闲的，哪些已经被占用
+};
+```
 
 回到这里，我们现在从超级块中找到一个空闲的磁盘块，此时我们还没有将数据写入进去，而是写入了内存中的缓冲层，我们之后调用 iget ，在这里，这个 iget 会发现我们的 inode 表中不存在这个内存缓冲表中，此时会为其设置一些标志位。
 
@@ -1294,7 +1310,37 @@ struct file* filealloc(void)
 }
 ```
 
-如上，我们从全局的 file 中分配了一个未被使用的 file ，在 `sys_open` 中，我们还会将他初始化，这里就不多赘述，当我们决定关闭一个文件的时候，我们会调用 fileclose ：
+如上，我们从全局的 file 中分配了一个未被使用的 file ，在 `sys_open` 中，我们还会将他初始化。同时，在他调用的时候，还会调用 fdalloc ，这个函数在当前 proc 中在 fd 数组中分配了一个 file 的下标，叫做 fd ，这个 fd 在之后 write 和 read 系统调用的时候都会使用到：
+
+```c
+// 为给定的文件分配一个文件描述符。
+// 在成功时接管调用者的文件引用。
+static int
+fdalloc(struct file *f)
+{
+  int fd;
+  struct proc *p = myproc();  // 获取当前进程指针
+
+  // 遍历进程的文件描述符表（ofile），寻找第一个空闲的位置
+  for(fd = 0; fd < NOFILE; fd++){
+    if(p->ofile[fd] == 0){  // 如果文件描述符位置为空（即没有被使用）
+      p->ofile[fd] = f;     // 将文件对象 f 分配给该文件描述符
+      return fd;            // 返回分配的文件描述符
+    }
+  }
+
+  // 如果没有空闲的文件描述符可用，返回 -1
+  return -1;
+}
+```
+
+其实这个分配 fd ，我们还会联想到我们的 shell 其实在最开始就分配了 3 个关于输出输出的 fd ，而这些文件描述符也是通过 open 系统调用来分配的，在 user/sh.c 中就可以明显看出。
+
+这里的调用链路比较复杂，忽略细节，简单画了张图帮助理解：
+
+![QQ_1746258233745](./assets/QQ_1746258233745.png)
+
+而当我们决定关闭一个文件的时候，我们会调用 fileclose ：
 
 ```c
 // 关闭文件 f。 (减少引用计数，当引用计数为0时关闭文件)
@@ -1394,7 +1440,6 @@ iput(struct inode *ip)
   // 释放inode表的锁
   release(&itable.lock);
 }
-
 ```
 
 其中，忽视掉不重要的部分，我们只需要关心 iupdate 即可
@@ -1431,9 +1476,11 @@ iupdate(struct inode *ip)
 }
 ```
 
+### 崩溃与恢复
+
 在这里，我们会将修改后的磁盘块写入日志，并且保存我们的数据到缓存块中。
 
-为什么需要日志？这是我们在后面的一个问题，我们在这里并没有发现实际的写入磁盘，为什么？事实上，我们在读写文件的时候，需要处于事务之中，直到我们 commit 的时候，才会真正的写入磁盘，这和我们的 MySQL 的事务很像，在这里，事务结束的标志就是 `end_op` 。
+为什么需要日志？这是我们在后面的一个问题，我们在这里并没有发现实际的写入磁盘，为什么？事实上，我们在读写文件的时候，需要处于事务之中，直到我们 commit 的时候，才会真正的写入磁盘，这和我们的 MySQL 的事务很像，在这里，事务结束的标志就是 `end_op` ，我们在 `end_op` 执行完成之后，才会真正将数据写入到磁盘中。
 
 ```c
 // 在每个文件系统系统调用结束时调用。
@@ -1469,6 +1516,7 @@ end_op(void)
   // 如果需要提交事务，则调用commit函数
   if(do_commit){
     // 在不持有锁的情况下调用commit()，因为不能在持有锁时进行睡眠
+    // 真正写入磁盘
     commit();
 
     // 重新获取日志锁，确保接下来的操作安全
@@ -1514,7 +1562,7 @@ commit()
 }
 ```
 
-我们在 write_log 里面会将我们之前操作过的日志全部写入日志的磁盘缓存块，随后写入磁盘：
+我们在 write_log 里面会将我们之前操作过的缓存块全部写入日志的缓存块，随后写入磁盘：
 
 ```c
 // 将修改的缓存块写入日志区域（磁盘）。
@@ -1535,7 +1583,7 @@ write_log(void)
     memmove(to->data, from->data, BSIZE);
 
     // 将日志块写回磁盘，持久化到日志设备
-    bwrite(to);  // 写入日志块
+    bwrite(to);
 
     // 释放缓存块
     brelse(from);
@@ -1544,7 +1592,43 @@ write_log(void)
 }
 ```
 
-最后，我们将数据写入磁盘块的是 `install_trans` ：
+接下来调用的是 `write_head` 函数，它会将日志头写入磁盘。
+
+```c
+// 将内存中的日志头写入磁盘。
+// 这是当前事务提交的真正时刻。
+static void
+write_head(void)
+{
+  // 读取日志头所在的块
+  struct buf *buf = bread(log.dev, log.start);
+  // 获取日志头结构体
+  struct logheader *hb = (struct logheader *) (buf->data);
+  int i;
+  // 设置日志头中的事务块数量
+  hb->n = log.lh.n;
+  // 将内存中的日志块编号复制到日志头
+  for (i = 0; i < log.lh.n; i++) {
+    hb->block[i] = log.lh.block[i];
+  }
+  // 将更新后的日志头写回磁盘
+  bwrite(buf);
+  // 释放读取的缓冲区
+  brelse(buf);
+}
+```
+
+日志头是啥？我们的日志头实际上是用来记录那些数据块被修改，修改了多少数据库，以此来帮助系统在崩溃时可以恢复信息（我们可以直接看 logheader 的结构体的成员就可以知道这一点）
+
+```c
+// 日志头块的内容，既用于磁盘上的日志头块，也用于在内存中跟踪提交前的日志块编号。
+struct logheader {
+  int n;                     // 当前事务中修改的块的数量
+  int block[LOGSIZE];        // 存储当前事务中涉及的块的块号，最多 LOGSIZE 个块
+};
+```
+
+最后，我们真正将数据写入磁盘块的是 `install_trans` ：
 
 ```c
 // 将已提交的日志块从日志区域复制到它们的目标位置（即实际的磁盘数据块）。
@@ -1559,10 +1643,10 @@ install_trans(int recovering)
   // 遍历日志中的每个块
   for (tail = 0; tail < log.lh.n; tail++) {
     // 读取日志块（从日志磁盘块中读取数据）
-    struct buf *lbuf = bread(log.dev, log.start + tail + 1);  // 从日志设备读取日志块
+    struct buf *lbuf = bread(log.dev, log.start + tail + 1);  // 读取之前记录修改的日志块
 
     // 读取目标数据块（目标数据块是日志中记录的修改位置）
-    struct buf *dbuf = bread(log.dev, log.lh.block[tail]);  // 从磁盘读取目标位置的块
+    struct buf *dbuf = bread(log.dev, log.lh.block[tail]);  // 读取目标位置的块
 
     // 将日志块的数据复制到目标数据块
     memmove(dbuf->data, lbuf->data, BSIZE);  // 将日志中的数据复制到目标数据块
@@ -1581,7 +1665,7 @@ install_trans(int recovering)
 }
 ```
 
-我们会发现，这里竟然是通过 log.dev 进行索引的，那我们回到最开始的代码会发现，根本没有使用 log.dev 去查找我们的磁盘缓存块，要回答这个问题，我们得回到我们之前没有读过的函数
+我们会发现，这里竟然是通过 log.dev 以及 log.blockno 进行索引的，那我们回到最开始的代码会发现，根本没有使用 log.dev 和 log.blockno 去查找我们的磁盘缓存块，要回答这个问题，我们得回到我们之前没有读过的函数
 
 > iget -> iupdate -> log_write
 
@@ -1629,9 +1713,86 @@ log_write(struct buf *b)
 }
 ```
 
-这里，我们会将我们的一个 log 的 block 更新成我们的数据缓存块对应的 block 编号。所以此时，我们并不需要根据我们的文件对应的 dev 和 blockno 传入 commit ，而只需要根据 log 的编号找到对应的磁盘缓存块，随后进行写入磁盘就可以了。
+这里，我们会将我们的一个 log 的 block 更新成我们的数据缓存块对应的 block 编号。所以此时，我们并不需要根据我们的文件对应的 blockno 传入 commit ，而只需要根据 log 的编号找到对应的磁盘缓存块，随后进行写入磁盘就可以了，至于 log.dev 我们可以理解他的设备号与文件系统的数据块的设备号一致，我们可以在 initlog 中发现， log.dev 实际上就是 **ROOTDEV** ，而关于我们所以文件的 dev ，我们可以从 create 这个函数中推测出来，所有实体文件的 dev 都是由它的父目录继承过来的，而所有目录的根目录其 dev 则是 **ROOTDEV** ，我是这么理解的。
 
-到这里，其实关于文件系统的大多数函数都已经介绍完了，值得一提的另一个函数是 bmap ，他会在 writei 和 readi 里面进行调用，我们常常会在 write 和 read 系统调用中看见这两个函数，但是这两个都是关于文件的，所以当时并没有详细介绍，这里先只看一个 writei ：
+在将数据写入磁盘之后，要做的就是擦除我们的内存及硬盘的日志数据了。
+
+以上仅仅是关于我们在将数据写入到磁盘的过程，我们还需要看看崩溃之后是如何恢复数据的，直接一点，我们直接看 `recover_from_log` 在何时会被调用，显然，是在 `initlog` 中，这个函数最终，会被 `forkret` 调用：
+
+```c
+void
+forkret(void)
+{
+  static int first = 1;
+  
+  // 仍然持有来自调度器的 p->lock 锁，释放该锁
+  release(&myproc()->lock);
+
+  if (first) {
+    // 文件系统初始化必须在常规进程的上下文中运行（例如，因为它会调用 sleep），
+    // 因此不能在 main() 函数中运行。
+    fsinit(ROOTDEV);  // 初始化文件系统，根设备为 ROOTDEV
+
+    first = 0;  // 设置 first 为 0，表示文件系统初始化已完成
+    // 使用内存屏障，确保其他核心看到 first 已更新为 0
+    __sync_synchronize();
+  }
+
+  // 返回用户态，准备执行用户程序
+  usertrapret();
+}
+```
+
+这是一个很突兀的存在，凭什么没有在操作系统启动的时候被调用呢？我们的 `forkret` 事实上和我们的进程调度有关，我们的进程在最开始被 fork 之后，事实上是没有直接执行我们想要执行的代码的，这个进程因为在最开始持有锁，并且它的 ra 设置就是我们的 forkret ，所以只有在我们的进程执行完 `forkret` 之后，才会真正的执行相关的代码。
+
+在这里，我们的进程会初始化文件系统，初始化文件系统的原因，已经摆明了，事实上，我们的 init 进程在 fork shell 的时候就会调用这个 `forkret` ，而这个 fsinit 在整个操作系统声明周期只会被执行一次，我们可以注意到，这个 first 是静态变量。
+
+接下来，我们看看到底是如何进行恢复的：
+
+```c
+static void
+recover_from_log(void)
+{
+  // 读取日志头信息，获取当前日志的块信息
+  read_head();
+  
+  // 如果事务已经提交，从日志中恢复数据块到磁盘
+  install_trans(1);  // 1表示正在恢复事务
+
+  // 清空日志头中的事务信息
+  log.lh.n = 0;
+
+  // 将清空后的日志头写回磁盘，表示日志已清空
+  write_head(); // 清空日志
+}
+```
+
+相比于之前的代码，非常的简单，直接从磁盘中读取日志头信息，随后直接恢复事务即可。
+
+### 其他一些函数
+
+到这里，其实关于文件系统的大多数函数都已经介绍完了，值得一提的另一个函数是 bmap ，他会在 writei 和 readi 里面进行调用，我们常常会在 write 和 read 系统调用中看见这两个函数，但是这两个都是关于文件的，所以当时并没有详细介绍， write 如下：
+
+```c
+uint64
+sys_write(void)
+{
+  struct file *f;
+  int n;
+  uint64 p;
+  
+  argaddr(1, &p);
+  argint(2, &n);
+  // 呼应上文，这里通过 fd 将我们对应的 file 结构体拿出来。
+  if(argfd(0, 0, &f) < 0)
+    return -1;
+
+  return filewrite(f, p, n);
+}
+
+```
+
+随后在 filewrite 中我们通过 fd 获取的 file 结构体 获取到对应的 inode 结构体指针，随后核心调用了一个 writei，然后我们可以看看它的逻辑：
 
 ```c
 // 将数据写入 inode。
@@ -1659,7 +1820,7 @@ writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
     if(addr == 0)  // 如果没有地址（意味着磁盘空间不足），退出
       break;
 
-    // 读取该块到缓冲区
+    // 读取该块到缓冲区，并拿到对应缓冲区的指针
     bp = bread(ip->dev, addr);
 
     // 计算每次写入的字节数，最多写入块大小减去当前偏移量
@@ -1753,4 +1914,46 @@ bmap(struct inode *ip, uint bn)
 
 很容易可以看见，和我们之前介绍过的 inode 的 addrs 有关，我们通过传入的偏移量，可以找到对应的磁盘块 addr ，如果没有分配，则使用 balloc 分配一个磁盘块就可以了，至于 balloc 则是我们最开始就已经介绍的函数了，这里就不多讲了。
 
-其中涉及到很多关于锁的设计，我都没有细讲，因为我觉得这里主要是关于文件系统的内容，感觉如果再对锁讲解，就太过繁琐了，这方面，关于 xv6 的教材倒是很详细。
+其中涉及到很多关于锁的设计，我都没有细讲，因为我觉得这里主要是关于文件系统的内容，感觉如果再对锁讲解，就太过繁琐了，这方面，关于 xv6 的教材讲得倒是很详细，不过他也仅仅给了一个方向，最重要的是自己去看源码。
+
+另外，在 fork 中，我们也可以看见 ofile 的引用数增加的身影：
+
+```c
+  for(i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
+      np->ofile[i] = filedup(p->ofile[i]);
+```
+
+最后提及一下我们几乎没见过的系统调用 fsstat ，他会将文件的元数据拷贝到用户空间：
+
+```c
+// 获取文件 f 的元数据。
+// addr 是一个用户虚拟地址，指向一个 struct stat 结构体，用于存储文件的元数据。
+int
+filestat(struct file *f, uint64 addr)
+{
+  struct proc *p = myproc();  // 获取当前进程的指针
+  struct stat st;  // 用于存储文件的元数据
+
+  // 如果文件类型是 FD_INODE 或 FD_DEVICE，表示该文件是一个实际文件或设备文件
+  if(f->type == FD_INODE || f->type == FD_DEVICE){
+    ilock(f->ip);  // 获取 inode 锁，防止其他进程修改 inode
+
+    stati(f->ip, &st);  // 获取 inode 的元数据并填充到 st 结构体中
+
+    iunlock(f->ip);  // 释放 inode 锁
+
+    // 将获取的元数据拷贝到用户空间指定地址 addr
+    // copyout 会将内核空间的数据拷贝到用户空间
+    if(copyout(p->pagetable, addr, (char *)&st, sizeof(st)) < 0)
+      return -1;  // 如果拷贝失败，返回 -1
+
+    return 0;  // 成功获取并拷贝元数据，返回 0
+  }
+
+  return -1;  // 如果文件类型不是 FD_INODE 或 FD_DEVICE，返回 -1
+}
+```
+
+---
+
