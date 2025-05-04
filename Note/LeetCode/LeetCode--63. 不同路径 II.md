@@ -70,3 +70,30 @@ func uniquePathsWithObstacles(obstacleGrid [][]int) int {
 ```
 
 感觉做的dp题型都太像了，感觉像被困在舒适区里面一样。
+
+三刷
+
+```go
+func uniquePathsWithObstacles(obstacleGrid [][]int) int {
+    n, m := len(obstacleGrid), len(obstacleGrid[0])
+    f := make([][]int, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]int, m + 1)
+    }
+    if obstacleGrid[0][0] == 1 {
+        return 0
+    }
+    f[1][1] = 1
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            if obstacleGrid[i - 1][j - 1] == 1 {
+                f[i][j] = 0
+            } else {
+                f[i][j] += f[i - 1][j] + f[i][j - 1]
+            }
+        }
+    }
+    return f[n][m]
+}
+```
+
