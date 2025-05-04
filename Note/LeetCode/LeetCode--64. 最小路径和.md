@@ -64,3 +64,25 @@ func minPathSum(grid [][]int) int {
 }
 ```
 
+三刷：
+
+```go
+func minPathSum(grid [][]int) int {
+    n, m := len(grid), len(grid[0])
+    f := make([][]int, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]int, m + 1)
+        for j := 0; j <= m; j ++ {
+            f[i][j] = 0x3f3f3f3f
+        }
+    }
+    f[1][0], f[0][1] = 0, 0
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            f[i][j] = min(f[i - 1][j], f[i][j - 1]) + grid[i - 1][j - 1]
+        }
+    }
+    return f[n][m]
+}
+```
+

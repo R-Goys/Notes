@@ -103,6 +103,20 @@ func maxProduct(nums []int) int {
 
 ----
 
-### 结语
+三刷，so easy
 
-最近决定要稍微多写一点题解了，只要是第一次写错的，争取都写一遍吧, 欢迎交流学习
+```go
+func maxProduct(nums []int) int {
+    n := len(nums)
+    Max, Min, preMin, preMax := -114514, -114514, 1, 1
+    for i := 0; i < n; i ++ {
+        preMax, preMin = max(preMax * nums[i], nums[i], preMin * nums[i]), min(preMax * nums[i], nums[i], preMin * nums[i])
+        Max = max(preMax, Max)
+        Min = min(preMin, Min)
+    }
+    return Max
+}
+```
+
+
+
