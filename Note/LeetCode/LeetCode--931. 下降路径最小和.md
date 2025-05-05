@@ -34,3 +34,27 @@ func minFallingPathSum(matrix [][]int) int {
 }
 ```
 
+二刷，开空间优化
+
+```go
+func minFallingPathSum(matrix [][]int) int {
+    n, m := len(matrix), len(matrix[0])
+    ans := 0x3f3f3f3f
+    f := make([][]int, 2)
+    for i := 0; i < 2; i ++ {
+        f[i] = make([]int, m + 2)
+    }
+    f[0][0], f[0][m + 1] = 0x3f3f3f3f, 0x3f3f3f3f
+    f[1][0], f[1][m + 1] = 0x3f3f3f3f, 0x3f3f3f3f
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            f[i % 2][j] = min(f[(i - 1) % 2][j], f[(i - 1) % 2][j - 1], f[(i - 1) % 2][j + 1]) + matrix[i - 1][j - 1]
+        }
+    }
+    for i := 1; i <= m; i ++ {
+        ans = min(f[(n) % 2][i], ans)
+    }
+    return ans
+}
+```
+
