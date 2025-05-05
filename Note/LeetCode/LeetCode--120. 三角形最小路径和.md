@@ -56,3 +56,53 @@ func minimumTotal(triangle [][]int) int {
 ```
 
 在进行空间优化的时候，需要注意如果建立一维数组，需要对左右两侧的边界进行特殊处理。
+
+二刷：
+
+```go
+func minimumTotal(triangle [][]int) int {
+    n := len(triangle)
+    ans := 0x3f3f3f3f
+    f := make([][]int, n)
+    for i := 0; i < n; i ++ {
+        f[i] = make([]int, i + 1)
+    }
+    f[0][0] = triangle[0][0]
+    for i := 1; i < n; i ++ {
+        f[i][0] = f[i - 1][0] + triangle[i][0]
+        f[i][i] = f[i - 1][i - 1] + triangle[i][i]
+    }
+    for i := 1; i < n; i ++ {
+        for j := 1; j < len(triangle[i]) - 1; j ++ {
+            f[i][j] = min(f[i - 1][j], f[i - 1][j - 1]) + triangle[i][j]
+        }
+    }
+    for i := 0; i < len(triangle[n - 1]); i ++ {
+        ans = min(f[n - 1][i], ans)
+    }
+    return ans
+}
+```
+
+空间优化
+
+```go
+func minimumTotal(triangle [][]int) int {
+    n := len(triangle)
+    ans := 0x3f3f3f3f
+    f := make([]int, n)
+    f[0] = triangle[0][0]
+    for i := 1; i < n; i ++ {
+        f[i] = f[i - 1] + triangle[i][i]
+        for j := i - 1; j >= 1; j -- {
+            f[j] = min(f[j], f[j - 1]) + triangle[i][j]
+        }
+        f[0] += triangle[i][0]
+    }
+    for i := 0; i < len(triangle[n - 1]); i ++ {
+        ans = min(f[i], ans)
+    }
+    return ans
+}
+```
+

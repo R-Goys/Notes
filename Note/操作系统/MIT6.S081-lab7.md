@@ -56,7 +56,9 @@ kfree(void *pa)
 
   r = (struct run*)pa;
   // 获取当前 cpu 的 id
+  push_off();
   int cpu = cpuid();
+  pop_off();
   // 分配页。
   acquire(&kmem[cpu].lock);
   r->next = kmem[cpu].freelist;
@@ -65,23 +67,21 @@ kfree(void *pa)
 }
 ```
 
-最后，我们需要给分配页表的函数 kalloc 进行大改！我们需要明确， kalloc 发现本地页表不足时，应该如何对其他的 cpu 的页表进行窃取，又应该如何加锁，这里我发现无论怎么加锁，甚至是全局锁，冒着死锁风险加嵌套锁，都没有办法通过 test3 ，尽管偶尔真的可以侥幸通过，但是不知道是什么原因通不过。。。
+最后，我们需要给分配页表的函数 kalloc 进行大改！我们需要明确， kalloc 发现本地页表不足时，应该如何对其他的 cpu 的页表进行窃取，又应该如何加锁，这里的实现有着死锁的风险，但是测试样例有的时候会检查不出来，另外的选择是加一把大锁，或者是将这两部分锁分开加，但是这样就会导致丢失的页面过多。
 
 ```c
 void *
 kalloc(void)
 {
   struct run *r;
-
+  push_off();
   int cpu = cpuid();
+  pop_off();
   acquire(&kmem[cpu].lock);
 
   r = kmem[cpu].freelist;
 
-  release(&kmem[cpu].lock);
   if(!r) {
-    // 全局锁
-    acquire(&kmem_lock);
     int steal_pages = 0;
     for(int i = 0; i < NCPU; i++) {
       if (i == cpu) continue;
@@ -92,32 +92,27 @@ kalloc(void)
         kmem[i].freelist = newpage->next; 
         release(&kmem[i].lock);
         // 处理窃取的链表
-        acquire(&kmem[cpu].lock);
+        // acquire(&kmem[cpu].lock);
         newpage->next = kmem[cpu].freelist;
         kmem[cpu].freelist = newpage;
         steal_pages ++;
-        release(&kmem[cpu].lock);
-        // 窃取了 32 个页面，足够了，就不再偷了。
-        if(steal_pages == 32) {
-          release(&kmem_lock);
+        // release(&kmem[cpu].lock);
+        // 窃取了 128 个页面，足够了，就不再偷了。
+        if(steal_pages == 128) {
           goto done;
         }
-        // 之后还有可能会窃取这个 cpu 中的页表，先加锁
         acquire(&kmem[i].lock);
       }
-      // 出来了，释放锁
       release(&kmem[i].lock);
     }
     // 如果为 0，说明没有别的 CPU 有空闲页面，需要 panic。
     if(steal_pages == 0) {
-      release(&kmem_lock);
+      release(&kmem[cpu].lock);
       return 0;
     }
-    release(&kmem_lock);
   }
 done:
-  acquire(&kmem[cpu].lock);
-  // 重新获取页
+  // acquire(&kmem[cpu].lock);
   r = kmem[cpu].freelist;
 
   if(r)
@@ -130,7 +125,6 @@ done:
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
-
 ```
 
 `make qemu` 之后输入 `kalloctest` ：
@@ -369,4 +363,4 @@ usertests: OK (110.5s)
 
 ---
 
-我先写完了 kalloc 部分的 lab ，测出来发现没问题就直接去写 bcache 部分的lab了，思路很相似，不过 bcache 最终的解决方案只能加个全局锁，后面 make grade 的时候，我才发现，我的 kalloc 的方案不行，后面改成全局锁，嵌套锁也不太行，就做罢了。
+结束
