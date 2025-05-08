@@ -6,7 +6,7 @@
 
 ---
 
-感觉相比前面一道 hard（[1594. 矩阵的最大非负积](https://leetcode.cn/problems/maximum-non-negative-product-in-a-matrix/)）还是要简单很多，这道题重点在于如何找准状态转移方程，很显然，这道题应该使用三维数组，而不是使用另一个二维数组来记录路径和，此时并没有要求我们记录最大路径和，所以如果使用二维数组会很困难，最好是使用三维数组来进行状态转移：
+感觉相比前面一道 hard（[1301. 最大得分的路径数目](https://leetcode.cn/problems/number-of-paths-with-max-score/)）还是要简单很多，这道题重点在于如何找准状态转移方程，很显然，这道题应该使用三维数组，而不是使用另一个二维数组来记录路径和，此时并没有要求我们记录最大路径和，所以如果使用二维数组会很困难，最好是使用三维数组来进行状态转移：
 
 ```c
 func numberOfPaths(grid [][]int, k int) int {
