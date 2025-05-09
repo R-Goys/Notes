@@ -45,6 +45,35 @@ func canPartition(nums []int) bool {
 }
 ```
 
+---
+
+二刷背包，记得反向遍历
+
+```go
+func canPartition(nums []int) bool {
+    sum := 0
+    n := len(nums)
+    var target int
+    for i := 0; i < n; i ++ {
+        sum += nums[i]
+    }
+    if sum % 2 == 1 {
+        return false
+    }
+    target = sum / 2
+    f := make([]bool, target + 1)
+    f[0] = true
+    for i := 1; i <= n; i ++ {
+        for j := target; j >= 1; j -- {
+            if j - nums[i - 1] >= 0 {
+                f[j] =  f[j] || f[j - nums[i - 1]]
+            }
+        }
+    }
+    return f[target]
+}
+```
+
 
 
 ### 494. 目标和
@@ -92,6 +121,35 @@ func findTargetSumWays(nums []int, target int) int {
 ```
 
 ---
+
+二刷目标和，这个做减法的思路还是没回忆起来，我去
+
+```go
+func findTargetSumWays(nums []int, target int) int {
+    sum := 0
+    n := len(nums)
+    for i := 0; i < n; i ++ {
+        sum += nums[i]
+    }
+    v := sum - target
+    if v < 0 || v % 2 == 1 {
+        return 0
+    }
+    v /= 2
+    f := make([]int, v + 1)
+    f[0] = 1
+    for i := 1; i <= n ; i ++ {
+        for j := v; j >= nums[i - 1]; j -- {
+            if j - nums[i - 1] >= 0 {
+                f[j] += f[j - nums[i - 1]]
+            }
+        }
+    }
+    return f[v]
+}
+```
+
+
 
 ## 结语
 
