@@ -41,7 +41,7 @@ func findMaxForm(strs []string, m int, n int) int {
 }
 ```
 
-二刷，感觉很模板的背包问题了，直接秒了：
+二刷，二维数组，感觉很模板的背包问题了，直接秒了：
 
 ```go
 func findMaxForm(strs []string, m int, n int) int {
