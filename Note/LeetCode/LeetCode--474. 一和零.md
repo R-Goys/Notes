@@ -41,3 +41,36 @@ func findMaxForm(strs []string, m int, n int) int {
 }
 ```
 
+二刷，感觉很模板的背包问题了，直接秒了：
+
+```go
+func findMaxForm(strs []string, m int, n int) int {
+    num0, num1 := 0, 0
+    f := make([][]int, m + 1)
+    for i := 0; i <= m ; i ++ {
+        f[i] = make([]int, n + 1)
+    }
+
+    for _, str := range strs {
+        num0, num1 = sum(str)
+        for i := m; i >= num0; i -- {
+            for j := n; j >= num1; j -- {
+                f[i][j] = max(f[i][j], f[i - num0][j - num1] + 1)
+            }
+        }
+    }
+    return f[m][n]
+}
+
+func sum(str string) (zero, one int) {
+    for i := 0 ; i < len(str); i ++ {
+        if str[i] == '0' {
+            zero ++
+        } else {
+            one ++
+        }
+    }
+    return
+}
+```
+
