@@ -52,3 +52,19 @@ func change(amount int, coins []int) int {
 }
 ```
 
+二刷：
+
+```go
+func change(amount int, coins []int) int {
+    n := len(coins)
+    f := make([]int, amount + 1)
+    f[0] = 1
+    for i := 0; i < n; i ++ {
+        for j := coins[i]; j <= amount; j ++ {
+            f[j] += f[j - coins[i]]
+        }
+    }
+    return f[amount]
+}
+```
+

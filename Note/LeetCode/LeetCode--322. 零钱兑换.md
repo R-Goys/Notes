@@ -34,3 +34,25 @@ func coinChange(coins []int, amount int) int {
 }
 ```
 
+二刷，完全背包：
+
+```go
+func coinChange(coins []int, amount int) int {
+    f := make([]int, amount + 1)
+    n := len(coins)
+    for i := 0; i <= amount; i ++ {
+        f[i] = 0x3f3f3f3f
+    }
+    f[0] = 0
+    for i := 0; i < n; i ++ {
+        for j := coins[i]; j <= amount; j ++ {
+            f[j] = min(f[j - coins[i]] + 1, f[j])
+        }
+    }
+    if f[amount] >= 0x3f3f3f3f {
+        return -1
+    }
+    return f[amount]
+}
+```
+

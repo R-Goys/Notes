@@ -47,6 +47,26 @@ func min(a, b int) int {
 }
 ```
 
-----
+二刷，极简版。
 
-### END
+```go
+func numSquares(n int) int {
+    src := make([]int, 0)
+    for i := 0; i * i <= n; i ++{
+        src = append(src, i * i)
+    }
+    m := len(src)
+    f := make([]int, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = 0x3f3f3f3f
+    }
+    f[0] = 0
+    for i := 0; i < m; i ++ {
+        for j := src[i]; j <= n; j ++ {
+            f[j] = min(f[j], f[j - src[i]] + 1)
+        }
+    }
+    return f[n]
+}
+```
+
