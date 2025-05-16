@@ -49,3 +49,33 @@ func minZeroArray(nums []int, queries [][]int) int {
 }
 ```
 
+二刷：
+
+```go
+func minZeroArray(nums []int, queries [][]int) (ans int) {
+    for i, x := range nums {
+        if x == 0 {
+            continue
+        }
+        f := make([]bool, x + 1)
+        f[0] = true
+        for k, q := range queries {
+            if q[0] > i || q[1] < i {
+                continue
+            }
+            for v := x; v >= q[2]; v -- {
+                f[v] = f[v - q[2]] || f[v]
+            }
+            if f[x]{
+                ans = max(k + 1, ans)
+                break
+            }
+        }
+        if !f[x] {
+            return -1
+        }
+    }  
+    return ans  
+}
+```
+
