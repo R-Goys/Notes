@@ -114,3 +114,28 @@ func longestCommonSubsequence(text1 string, text2 string) int {
 }
 ```
 
+## 三刷
+
+分组背包控我半天，线性 easy dp 直接秒杀。
+
+```go
+func longestCommonSubsequence(text1 string, text2 string) int {
+    n, m := len(text1), len(text2)
+
+    f := make([][]int, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]int, m + 1)
+    }
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            if text1[i - 1] == text2[j - 1] {
+                f[i][j] = f[i - 1][j - 1] + 1
+            } else {
+                f[i][j] = max(f[i - 1][j], f[i][j - 1])
+            }
+        }
+    }
+    return f[n][m]
+}
+```
+
