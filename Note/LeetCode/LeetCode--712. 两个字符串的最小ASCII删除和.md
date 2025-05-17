@@ -60,3 +60,34 @@ func minimumDeleteSum(s1 string, s2 string) int {
 }
 ```
 
+二刷：
+
+还是求公共子序列，不过这次不是求最长，而是 ASCII 码最大的子序列，线性 dp 这些题太像了：
+
+```go
+func minimumDeleteSum(s1 string, s2 string) int {
+    n, m := len(s1), len(s2)
+    sum1, sum2 := 0, 0
+    for i := 0 ; i < n; i ++ {
+        sum1 += int(s1[i])
+    }
+    for i := 0 ; i < m; i ++ {
+        sum2 += int(s2[i])
+    }
+    f := make([][]int, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]int, m + 1)
+    }
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            if s1[i - 1] == s2[j - 1] {
+                f[i][j] = f[i - 1][j - 1] + int(s1[i - 1])
+            } else {
+                f[i][j] = max(f[i - 1][j], f[i][j - 1])
+            }
+        }
+    }
+    return sum1 + sum2 - 2 * f[n][m]
+}
+```
+
