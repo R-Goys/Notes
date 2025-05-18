@@ -97,3 +97,33 @@ func minDistance(word1 string, word2 string) int {
 }
 ```
 
+三刷：
+
+我们有三种编辑的可能，删一个，插入一个，修改一个，对应了在元素不相等的情况下，三种状态转移的式子。
+
+```go
+func minDistance(word1 string, word2 string) int {
+    n, m := len(word1), len(word2)
+    f := make([][]int, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]int, m + 1)
+    }
+    for i := 0; i <= n; i ++ {
+        f[i][0] = i
+    }
+    for j := 0; j <= m; j ++ {
+        f[0][j] = j
+    }
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            if word1[i - 1] == word2[j - 1] {
+                f[i][j] = f[i - 1][j - 1]
+            } else {
+                f[i][j] = min(f[i - 1][j], f[i][j - 1], f[i - 1][j - 1]) + 1
+            }
+        }
+    }
+    return f[n][m]
+}
+```
+
