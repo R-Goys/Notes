@@ -31,3 +31,28 @@ func numDistinct(s string, t string) int {
 }
 ```
 
+二刷：
+
+刚做不久又忘了，哎，多练吧：
+
+```go
+func numDistinct(s string, t string) int {
+    n, m := len(s), len(t)
+    f := make([][]int, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]int, m + 1)
+        f[i][0] = 1
+    }
+    for i := 1; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            if s[i - 1] == t[j - 1] {
+                f[i][j] = f[i - 1][j] + f[i - 1][j - 1]
+            } else {
+                f[i][j] = f[i - 1][j]
+            }
+        }
+    }
+    return f[n][m]
+}
+```
+
