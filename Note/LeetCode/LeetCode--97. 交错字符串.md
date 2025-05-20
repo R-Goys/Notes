@@ -46,3 +46,31 @@ func isInterleave(s1 string, s2 string, s3 string) bool {
 ```
 
 很显然，这里可以使用滚动数组优化，但是懒得写了)
+
+二刷
+
+```go
+func isInterleave(s1 string, s2 string, s3 string) bool {
+    n, m, l := len(s1), len(s2), len(s3)
+    if n + m != l {
+        return false
+    }
+    f := make([][]bool, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]bool, m + 1)
+    }
+    f[0][0] = true
+    for i := 0; i <= n; i ++ {
+        for j := 0; j <= m; j ++ {
+            if i > 0 && s1[i - 1] == s3[i + j - 1] {
+                f[i][j] = f[i - 1][j] || f[i][j]
+            }
+            if j > 0 && s2[j - 1] == s3[i + j - 1] {
+                f[i][j] = f[i][j - 1] || f[i][j]
+            }
+        }
+    }
+    return f[n][m]
+}
+```
+

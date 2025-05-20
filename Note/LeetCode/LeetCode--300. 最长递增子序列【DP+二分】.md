@@ -12,7 +12,7 @@
 >
 >**子序列** 是由数组派生而来的序列，删除（或不删除）数组中的元素而不改变其余元素的顺序。例如，`[3,6,2,7]` 是数组 `[0,3,1,6,2,2,7]` 的子序列。
 
-
+---
 
 O(N^2)的解决方法很简单，这里不多赘述，如下：
 
@@ -79,6 +79,48 @@ func max(i, j int) int {
 
 ----
 
-## 结语
+二刷：
 
-之前还写过这个优化，结果现在就忘了，不得不说，算法真得多复习~
+```go
+func lengthOfLIS(nums []int) int {
+    n := len(nums)
+    ans := 0
+    f := make([]int, n)
+    for i := 0; i < n; i ++ {
+        f[i] = 1
+        for j := 0; j <= i; j ++ {
+            if nums[i] > nums[j] {
+                f[i] = max(f[i], f[j] + 1)
+            }
+            ans = max(f[i], ans)
+        }
+    }
+    return ans
+}
+```
+
+二分优化：
+
+```go
+func lengthOfLIS(nums []int) int {
+    n := len(nums)
+    f := make([]int, n + 1)
+    Len := 0
+    for i := 0; i < n; i ++ {
+        l := 0
+        r := Len
+        for l < r {
+            mid := (l + r + 1) / 2
+            if f[mid] < nums[i] {
+                l = mid
+            } else {
+                r = mid - 1
+            }
+        }
+        Len = max(Len, r + 1)
+        f[r + 1] = nums[i]
+    }
+    return Len
+}
+```
+
