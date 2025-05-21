@@ -62,3 +62,29 @@ func match(i, j int, s, p string) bool {
 }
 ```
 
+经典 hard，二战过了：
+
+```go
+func isMatch(s string, p string) bool {
+    n, m := len(s), len(p)
+    f := make([][]bool, n + 1)
+    for i := 0; i <= n; i ++ {
+        f[i] = make([]bool, m + 1)
+    }
+    f[0][0] = true
+    for i := 0; i <= n; i ++ {
+        for j := 1; j <= m; j ++ {
+            if p[j - 1] == '*' {
+                f[i][j] = f[i][j - 2] || f[i][j]
+                if i > 0 && (p[j - 2] == '.' || s[i - 1] == p[j - 2]) {
+                    f[i][j] = f[i - 1][j] || f[i][j]
+                }
+            } else if i > 0 && (s[i - 1] == p[j - 1] || p[j - 1] == '.') {
+                f[i][j] = f[i - 1][j - 1] || f[i][j]
+            }
+        }
+    }
+    return f[n][m]
+}
+```
+
