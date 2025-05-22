@@ -124,3 +124,4 @@ func lengthOfLIS(nums []int) int {
 }
 ```
 
+关于这部分，二分边界也是想了很久，详情可以看我的文章： [二分查找边界问题](https://rs-notes.gitbook.io/r/note/suan-fa-za-tan/guan-yu-er-fen-cha-zhao-shi-de-bian-jie-fen-lei-wen-ti) 
