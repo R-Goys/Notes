@@ -4,7 +4,7 @@
 
 ---
 
-相比于之前的最长上升子序列，这道题可以直接搬过来，但是这道题要求是非递减，我们只需要稍作修改就可以得到正确的答案：
+相比于之前的最长上升子序列，这道题可以直接搬过来，但是这道题要求是非递减，将左边界变更的条件改一下，当小于等于的时候就直接变更，就可以得到正确的答案：
 
 ```go
 func minimumOperations(nums []int) int {
@@ -26,6 +26,19 @@ func minimumOperations(nums []int) int {
         f[r + 1] = nums[i]
     }
     return n - Len
+}
+```
+
+由于数组中仅仅存在三种数字，所以使用上升子序列的优化办法反而还麻烦了：
+
+```go
+func minimumOperations(nums []int) int {
+    n := len(nums)
+    f := [4]int{}
+    for i := 0; i < n; i ++ {
+        f[nums[i]] = slices.Max(f[:nums[i] + 1]) + 1
+    }
+    return n - slices.Max(f[:])
 }
 ```
 
