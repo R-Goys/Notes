@@ -34,3 +34,29 @@ func longestObstacleCourseAtEachPosition(obstacles []int) []int {
 }
 ```
 
+二刷，刷灵神题单又回来了，由于太过模板，写了个 `O（n）` 但是超时了，于是改用二分：
+
+```go
+func longestObstacleCourseAtEachPosition(obstacles []int) []int {
+    n := len(obstacles)
+    f := make([]int, n + 1)
+    ans := make([]int, 0)
+    Len := 0
+    for i := 0; i < n; i ++ {
+        l, r := 0, Len
+        for l < r {
+            mid := (l + r + 1) / 2
+            if obstacles[i] < f[mid] {
+                r = mid - 1
+            } else {
+                l = mid
+            }
+        }
+        Len = max(Len, r + 1)
+        f[r + 1] = obstacles[i]
+        ans = append(ans, r + 1)
+    }
+    return ans
+}
+```
+
