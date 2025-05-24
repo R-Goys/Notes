@@ -59,3 +59,28 @@ func maxEnvelopes(envelopes [][]int) int {
 }
 ```
 
+---
+
+二刷：
+
+为什么第二个元素是降序排列？因为在第一个元素相同的情况下，升序排列会导致相同宽度的信封嵌套!
+
+```go
+func maxEnvelopes(envelopes [][]int) int {
+    n := len(envelopes)
+    sort.Slice(envelopes, func(i, j int) bool {
+        return envelopes[i][0] < envelopes[j][0] ||
+        (envelopes[i][0] == envelopes[j][0] && envelopes[i][1] > envelopes[j][1])
+    })
+    f := make([]int, 0)
+    for i := 0; i < n; i ++ {
+        if dst := sort.SearchInts(f, envelopes[i][1]); dst < len(f) {
+            f[dst] = envelopes[i][1]
+        } else {
+            f = append(f, envelopes[i][1])
+        }
+    }
+    return len(f)
+}
+```
+
