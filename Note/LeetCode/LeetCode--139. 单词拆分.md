@@ -25,3 +25,21 @@ func wordBreak(s string, wordDict []string) bool {
 }
 ```
 
+二刷，秒
+
+```go
+func wordBreak(s string, wordDict []string) bool {
+    n, m := len(s), len(wordDict)
+    f := make([]bool, n + 1)
+    f[0] = true
+    for i := 1; i <= n; i ++ {
+        for j := 0; j < m; j ++ {
+            if i >= len(wordDict[j]) && s[i - len(wordDict[j]) : i] == wordDict[j] {
+                f[i] = f[i] || f[i - len(wordDict[j])]
+            }
+        }
+    }
+    return f[n]
+}
+```
+
