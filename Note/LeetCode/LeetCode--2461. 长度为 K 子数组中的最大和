@@ -1,0 +1,61 @@
+[2461. 长度为 K 子数组中的最大和](https://leetcode.cn/problems/maximum-sum-of-distinct-subarrays-with-length-k/)
+
+> 给你一个整数数组 `nums` 和一个整数 `k` 。请你从 `nums` 中满足下述条件的全部子数组中找出最大子数组和：
+>
+> - 子数组的长度是 `k`，且
+> - 子数组中的所有元素 **各不相同 。**
+>
+> 返回满足题面要求的最大子数组和。如果不存在子数组满足这些条件，返回 `0` 。
+>
+> **子数组** 是数组中一段连续非空的元素序列。
+
+---
+
+这里感觉遍历有点难写，如果使用双指针的话感觉思路会比较清晰，虽然写出来代码有点乱。
+
+首先我们循环增加 r 指针，使得长度保持为 k，然后如果遇见出现了两次的数字，这里可以用哈希表维护出现的数字的次数，我们就增加变量 cnt 的计数，表示此时不能把这个 sum 计算到答案中，然后移动 l 指针也是一样的思路：
+
+```go
+func maximumSubarraySum(nums []int, k int) int64 {
+    cnt := 0
+    mp := make(map[int]int, 0)
+    sum, ans := 0, 0
+    l, r := 0, 0
+    n := len(nums)
+    for r < n {
+        for r - l < k && r < n {
+            if mp[nums[r]] == 1 {
+                cnt ++
+            }
+            mp[nums[r]] ++
+            sum += nums[r]
+            r ++
+        }
+
+        if r - l == k {
+            if cnt == 0 {
+                ans = max(ans, sum)
+            } else {
+                for cnt != 0 {
+                    if mp[nums[l]] == 2 {
+                        cnt --
+                    }
+                    mp[nums[l]] --
+                    sum -= nums[l]
+                    l ++
+                }
+            }
+            if r - l == k {
+                if mp[nums[l]] == 2 {
+                    cnt --
+                }
+                mp[nums[l]] --
+                sum -= nums[l]
+                l ++
+            }
+        }
+    }
+    return int64(ans)
+}
+```
+
