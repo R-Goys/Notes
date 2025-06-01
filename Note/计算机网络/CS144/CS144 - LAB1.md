@@ -185,4 +185,4 @@ Total Test time (real) =   9.15 sec
 Built target check1
 ```
 
-感觉自己可能写不下去这个实验，这个 lab1 就花了两天时间byd，真的相似了。
+感觉自己可能写不下去这个实验，这个 lab1 就花了两天时间byd，真的相似了，走一步算一步吧。
