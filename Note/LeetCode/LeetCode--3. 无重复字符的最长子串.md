@@ -23,3 +23,30 @@ func lengthOfLongestSubstring(s string) int {
 }
 ```
 
+二刷，双指针，啊我去，我怎么写了这么屎山的代码。
+
+```go
+func lengthOfLongestSubstring(s string) int {
+    mp := make(map[byte]int, 0)
+    cnt := 0
+    l, r := 0, 0
+    ans := 0
+    for r < len(s) {
+        if mp[s[r]] == 1 {
+            cnt ++
+        }
+        mp[s[r]] ++
+        r ++
+        for cnt > 0 {
+            if mp[s[l]] == 2 {
+                cnt --
+            }
+            mp[s[l]] --
+            l ++
+        }
+        ans = max(ans, r - l)
+    }
+    return ans
+}
+```
+
