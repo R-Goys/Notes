@@ -22,3 +22,26 @@ func longestOnes(nums []int, k int) int {
 }
 ```
 
+超简单，不同时期有不同时期的见解，刷 dp 题单第一眼觉得是 dp，刷滑窗题单第一眼觉得是滑窗
+
+```go
+func longestOnes(nums []int, k int) int {
+    zeroNum := 0
+    l := 0
+    ans := 0
+    for r, x := range nums {
+        if x == 0 {
+            zeroNum ++
+        }
+        for zeroNum > k {
+            if nums[l] == 0 {
+                zeroNum --
+            }
+            l ++
+        }
+        ans = max(ans, r - l + 1)
+    }
+    return ans
+}
+```
+
