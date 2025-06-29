@@ -61,3 +61,42 @@ func minWindow(s string, t string) string {
 }
 ```
 
+二刷：
+
+```go
+func minWindow(s string, t string) string {
+    nums := ['z' + 1]int{}
+    all := 0
+    for _, x := range t {
+        if nums[x] == 0 {
+            all ++
+        }
+        nums[x] ++
+    }
+    lans := -1
+    rans := 0x3f3f3f3f
+    l := 0
+    for r, x := range s {
+        nums[x] --
+        if nums[x] == 0 {
+            all --
+        }
+        for all == 0 {
+            if rans - lans + 1 > r - l + 1 {
+                rans = r
+                lans = l
+            }
+            if nums[s[l]] == 0 {
+                all ++
+            }
+            nums[s[l]] ++
+            l ++
+        }
+    }
+    if rans == 0x3f3f3f3f {
+        return ""
+    }
+    return s[lans : rans + 1]
+}
+```
+
