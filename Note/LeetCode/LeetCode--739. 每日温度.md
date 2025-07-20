@@ -27,3 +27,21 @@ func dailyTemperatures(temperatures []int) []int {
 }
 ```
 
+二刷，二分写烦了缓解一下心情
+
+```go
+func dailyTemperatures(temperatures []int) []int {
+    ans := make([]int, len(temperatures))
+    stk := make([]int, 0)
+    for i, x := range temperatures {
+        for len(stk) > 0 && temperatures[stk[len(stk) - 1]] < x {
+            idx := stk[len(stk) - 1]
+            stk = stk[:len(stk) - 1]
+            ans[idx] = i - idx
+        }
+        stk = append(stk, i)
+    }
+    return ans
+}
+```
+
