@@ -57,6 +57,23 @@ func largestRectangleArea(heights []int) int {
 
 ---
 
-## 结语
+二刷
 
-这道题思路来源于[bilibili](https://www.bilibili.com/video/BV1dY4y1q7tL/?spm_id_from=333.337.search-card.all.click&vd_source=6e2b649849f5c10412cea814a01001a4)，如果觉得不清晰可以看看这个视频。
+```go
+func largestRectangleArea(heights []int) int {
+    heights = append(heights, -1)
+    st := []int{-1}
+    ans := 0
+    for i, x := range heights {
+        for len(st) > 1 && heights[st[len(st) - 1]] >= x {
+            idx := st[len(st) - 1]
+            st = st[:len(st) - 1]
+            left := st[len(st) - 1]
+            ans = max(ans, (i - left - 1) * heights[idx])
+        }
+        st = append(st, i)
+    }
+    return ans
+}
+```
+
