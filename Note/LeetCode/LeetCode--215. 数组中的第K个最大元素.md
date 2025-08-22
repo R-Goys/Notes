@@ -89,3 +89,30 @@ func findKthLargest(nums []int, k int) int {
 }
 ```
 
+----
+
+吊打 go 容器之 CPP 写法
+
+```cpp
+class Solution {
+public:
+    int findKthLargest(vector<int>& nums, int k) {
+        int n = nums.size();
+        return quickSelect(nums, 0, n - 1, n - k);
+    }
+
+    int quickSelect(vector<int> &nums, int l, int r, int k) {
+        if (r == l) 
+            return nums[k];
+        int mid = nums[l], i = l - 1, j = r + 1;
+        while (i < j) {
+            do i++; while(nums[i] < mid);
+            do j--; while(nums[j] > mid);
+            if (i < j) swap(nums[i], nums[j]);
+        }
+        if (k <= j) return quickSelect(nums, l, j, k);
+        else return quickSelect(nums, j + 1, r, k);
+    }
+};
+```
+

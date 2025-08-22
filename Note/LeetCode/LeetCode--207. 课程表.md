@@ -80,5 +80,42 @@ func canFinish(numCourses int, prerequisites [][]int) bool {
 }
 ```
 
+三刷，cpp 真好用ing
 
+```cpp
+class Solution {
+public:
+    bool canFinish(int numCourses, vector<vector<int>>& prerequisites) {
+        vector<vector<int>> edges(numCourses);
+        vector<int> status(numCourses);
+        queue<int> q;
+        int cnt = 0;
+        for (auto pre : prerequisites) {
+            status[pre[0]]++;
+            edges[pre[1]].push_back(pre[0]);
+        }
+
+        for (int i = 0; i < numCourses; i++) {
+            if (status[i] == 0) {
+                q.push(i);
+                cnt++;
+            }
+        }
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            vector<int> edge = edges[u];
+            for (int v : edge) {
+                status[v]--;
+                if (status[v] == 0) {
+                    cnt++;
+                    q.push(v);
+                }
+            }
+        }
+        return cnt == numCourses;
+    }
+};
+```
 

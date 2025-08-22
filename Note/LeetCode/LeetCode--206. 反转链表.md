@@ -56,3 +56,22 @@ func Reverse(Prev *ListNode, Cur *ListNode) *ListNode {
 }
 ```
 
+cpp反转
+
+```cpp
+class Solution {
+public:
+    ListNode* reverseList(ListNode* head) {
+        ListNode* pre = nullptr;
+        ListNode* tmp = head;
+        while (tmp != nullptr) {
+            ListNode* ne = tmp->next;
+            tmp->next = pre;
+            pre = tmp;
+            tmp = ne;
+        }
+        return pre;
+    }
+};
+```
+
