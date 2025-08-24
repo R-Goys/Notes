@@ -58,5 +58,45 @@ func infect(grid *[][]byte, i int, j int, visited *[][]bool)  {
 
 ----
 
+cpp 写算法真好看。
+
+```cpp
+class Solution {
+public:
+    int xpos[4] = {1, -1, 0, 0};
+    int ypos[4] = {0, 0, 1, -1};
+    int numIslands(vector<vector<char>>& grid) {
+        int ans = 0;
+        int n = grid.size(), m = grid[0].size();
+        vector<vector<bool>> visited(n, vector<bool>(m));
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                ans += infect(grid, visited, i, j);
+            }
+        }
+        return ans;
+    }
+
+    int infect(vector<vector<char>>& grid, 
+                vector<vector<bool>>& visited, int i, int j) {
+        if (grid[i][j] == '0' || visited[i][j]) {
+            return 0;
+        }
+        visited[i][j] = true;
+        for (int z = 0; z < 4; z++) {
+            int x = xpos[z] + i;
+            int y = ypos[z] + j;
+            if (x >= grid.size() || x < 0 || y >= grid[0].size() || y < 0) {
+                continue;
+            }
+            infect(grid, visited, x, y);
+        }
+        return 1;
+    }
+};
+```
+
+
+
 
 
