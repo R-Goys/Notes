@@ -43,3 +43,30 @@ func wordBreak(s string, wordDict []string) bool {
 }
 ```
 
+---
+
+三刷cpp
+
+```cpp
+class Solution {
+public:
+    bool wordBreak(string s, vector<string>& wordDict) {
+        int n = s.size();
+        int m = wordDict.size();
+        vector<bool> f(n + 1);
+        f[0] = true;
+
+        for (int i = 1; i <= n; i ++) {
+            for (auto &w : wordDict) {
+                if (i >= w.size() &&
+                s.compare(i - w.size(), w.size(), w) == 0) {
+                    f[i] = f[i] || f[i - w.size()];
+                }
+            }
+        }
+        return f[n];
+    }
+};
+```
+
+考虑可以用哈希表，时间复杂度会更小，但是空间复杂度更大。

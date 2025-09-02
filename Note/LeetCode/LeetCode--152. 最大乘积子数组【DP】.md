@@ -120,3 +120,33 @@ func maxProduct(nums []int) int {
 
 
 
+转cpp之后，很坑的一点，就是不能使用 x, y = z, u;
+
+所以此时需要格外注意变量有没有发生变化。
+
+```cpp
+class Solution {
+private:
+    int max(int x, int y) {
+        return (x > y) ? x : y;
+    }
+    int min(int x, int y) {
+        return (x < y) ? x : y;
+    }
+public:
+    int maxProduct(vector<int>& nums) {
+        int Max = INT_MIN, Min = INT_MAX, preMax = 1, preMin = 1;
+        for (auto x : nums) {
+            int pmax = preMax;
+            preMax = max(max(preMax * x, preMin * x), x);
+            preMin = min(min(preMin * x, pmax * x), x);
+            Max = max(Max, preMax);
+            Min = min(Min, preMin);
+        }
+        return Max;
+    }
+};
+
+
+```
+

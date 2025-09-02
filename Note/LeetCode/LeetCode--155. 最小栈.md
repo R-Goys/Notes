@@ -92,3 +92,37 @@ func (this *MinStack) GetMin() int {
 
 ```
 
+cpp 写法
+
+```cpp
+class MinStack {
+
+private:
+    stack<int> stk;
+    stack<int> minstk;
+public:
+    MinStack() {
+        this->minstk.push(INT_MAX);
+    }
+    
+    void push(int val) {
+        this->stk.push(val);
+        this->minstk.push(min(val, this->getMin()));
+    }
+    
+    void pop() {
+        this->stk.pop();
+        this->minstk.pop();
+    }
+    
+    int top() {
+        return this->stk.top();
+    }
+    
+    int getMin() {
+        return this->minstk.top();
+    }
+};
+
+```
+
