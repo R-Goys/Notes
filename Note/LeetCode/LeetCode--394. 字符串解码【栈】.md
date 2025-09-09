@@ -132,3 +132,61 @@ func decodeString(s string) string {
 }
 ```
 
+---
+
+三刷秒了
+
+```cpp
+class Solution {
+public:
+    string decodeString(string s) {
+        int n = s.size();
+        string ans = "";
+        string tmp = "";
+        stack<string> tmps;
+        int num = 0;
+        stack<int> nums;
+        for (int i = 0; i < n; i ++) {
+            if (s[i] >= '0' && s[i] <= '9') {
+                num *= 10;
+                num += s[i] - '0';
+                if (i == n - 1 || s[i + 1] < '0' || s[i + 1] > '9') {
+                    nums.push(num);
+                    num = 0;
+                }
+                continue;
+            }
+            
+            if (s[i] != '[' && s[i] != ']') {
+                tmp += s[i];
+                continue;
+            }
+
+            if (s[i] == '[') {
+                tmps.push(tmp);
+                tmp = "";
+                continue;
+            }
+
+            if (s[i] == ']') {
+                if (nums.empty()) {
+                    num = 1;
+                } else {
+                    num = nums.top();
+                    nums.pop();
+                }
+                string ret = tmps.top();
+                tmps.pop();
+                for (int i = 0; i < num; i ++) {
+                    ret += tmp;
+                }
+                tmp = ret;
+                num = 0;
+                continue;
+            }
+        }
+        return tmp;
+    }
+};
+```
+
