@@ -666,9 +666,11 @@ Wait方法主要就是等待wg的计数器归零，陷入休眠，等待信号�
 
 ### **SingleFlight**
 
-虽然作者说用这个可以处理缓存击穿的问题，但是感觉不太常用。
+虽然作者说用这个可以处理缓存击穿的问题，~~但是感觉不太常用~~。
 
 主要就是通过调用 [`golang/sync/singleflight.Group.Do`](https://draveness.me/golang/tree/golang/sync/singleflight.Group.Do)方法，来限制同一时间重复的请求次数，阻塞的等待参数返回，而[`golang/sync/singleflight.Group.DoChan`](https://draveness.me/golang/tree/golang/sync/singleflight.Group.DoChan)会返回一个管道，让你只会去取拿到的返回值，相当于异步执行。
+
+常看常新，很牛逼，通过创建哈希表，删除哈希表很短时间内的延迟来实现去重，太牛逼了。
 
 ---
 

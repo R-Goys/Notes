@@ -41,3 +41,38 @@ func searchRange(nums []int, target int) []int {
 }
 ```
 
+二刷，凭借直觉直接秒
+
+```cpp
+class Solution {
+public:
+    vector<int> searchRange(vector<int>& nums, int target) {
+        int l = 0, r = nums.size() - 1;
+        while (l < r) {
+            int mid = (l + r) / 2;
+            if (nums[mid] < target) {
+                l = mid + 1;
+            } else {
+                r = mid;
+            }
+        }
+        int left = r;
+        l = 0, r = nums.size() - 1;
+        while (l < r) {
+            int mid = (l + r + 1) / 2;
+            if (nums[mid] <= target) {
+                l = mid;
+            } else {
+                r = mid - 1;
+            }
+        }
+        int right = r;
+        if (left < 0 || right >= nums.size() || nums[right] != target && nums[left] != target) {
+            return {-1, -1};
+        }
+
+        return {left, right};
+    }
+};
+```
+
