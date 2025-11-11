@@ -150,7 +150,6 @@ count() 的作用是统计不为 NULL 的字段个数，我们的 count(*) 并�
 > - min_trx_id：创建 read view 的时候，m_ids 中的 id 最小值，最早创建的事务。
 > - max_trx_id：跟上面相反，表示 m_ids 中的最大值的下一个id，也就是最大值 +1。
 > - creator_trx_id：创建这个 read view 的事务的 id。
->
 
 除此之外，我们的 MySQL 中还有两个隐藏列：
 
