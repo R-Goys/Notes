@@ -13,13 +13,13 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Note/SQL学习记录/SQL碎片知识.md",
+                "file": "README.md",
                 "mode": "source",
                 "source": false,
                 "backlinks": false
               },
               "icon": "lucide-file",
-              "title": "SQL碎片知识"
+              "title": "README"
             }
           }
         ]
@@ -143,13 +143,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/SQL学习记录/SQL碎片知识.md",
+                "file": "README.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "SQL碎片知识 的大纲"
+              "title": "README 的大纲"
             }
           }
         ],
@@ -167,32 +167,58 @@
       "daily-notes:打开/创建今天的日记": false,
       "templates:插入模板": false,
       "command-palette:打开命令面板": false,
-      "bases:创建新数据库": false
+      "bases:创建新数据库": false,
+      "obsidian-git:Open Git source control": false
     }
   },
   "active": "d9e79f3b3d34084c",
   "lastOpenFiles": [
-    "2025-11-11.md",
-    "Note/SQL学习记录/SQL碎片知识.md",
-    "未命名.base",
-    "Note/操作系统/操作系统碎片知识.md",
-    "未命名.canvas",
-    "Note/LeetCode/LeetCode--94. 二叉树的中序遍历.md",
-    "Note/微服务相关/【Golangnacos】nacos配置的增删查改，以及服务注册的golang实例及分析.md",
-    "Note/微服务相关/【GolanggRPCNacos】在golang中将gRPC和Nacos结合使用.md",
-    "Note/算法杂谈/关于二分查找时的边界分类问题.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(1)--概述.md",
-    "Note/计算机网络/网络编程随手记.md",
-    "Note/分布式系统/MIT6.5840/MIT6.5840-lab Debug 记录.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab2.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab1.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-环境搭建.md",
-    "Note/操作系统/MIT6.S081/assets/QQ_1746258233745.png",
+    "Note/未命名.md",
     "README.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab5.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab4.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab3.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab3前置.md",
-    "Note/操作系统/MIT6.S081/assets/QQ_1746257774702.png"
+    "Note/SQL学习记录/SQL碎片知识.md",
+    "conflict-files-obsidian-git.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(9)-- CPU·其一 CPU的基本概念流水线技术数据通路.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(8)-- 指令系统·其一 指令的组成以及数据寻址方式RISK和CISK.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(7)-- 存储器·其二 容量扩展多模块存储系统外存Cache虚拟存储器.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(6)-- 存储器·其一 SRAMDRAMROM主存储器的初步认识.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(5)--数据的表示与运算·其四 浮点数的储存和加减内存对齐大端小端.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(4)--数据的表示与运算·其三 补码的乘法以及原码补码的除法.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(3)--数据表示与运算·其二 逻辑门和加减乘.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(2)--数据的表示和运算·其一.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(12) -- 总线和IO系统.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(11)-- CPU·其三 中断和异常多处理器相关概念.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(10)-- CPU·其二 组合逻辑控制器和微程序.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(1)--概述.md",
+    "Note/计组笔记",
+    "Note/计算机网络/计算机网络.md",
+    "Note/计算机网络/CS144/assets/image-20250602150045383.png",
+    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
+    "Note/计算机网络/CS144/assets/image-20250602140428113.png",
+    "Note/计算机网络/CS144/assets/image-20250601203547948.png",
+    "Note/计算机网络/CS144/assets/image-20250529172155388.png",
+    "Note/计算机网络/CS144/assets/image-20250529171906590.png",
+    "Note/计算机网络/CS144/assets/image-20250529164803268.png",
+    "Note/计算机网络/CS144/assets/image-20250528155327866.png",
+    "Note/计算机网络/CS144/assets/image-20250528145653036.png",
+    "Note/计算机网络/CS144/assets/image-20250528145040176.png",
+    "Note/计算机网络/CS144/assets",
+    "Note/计算机网络/CS144/CS144 - Lecture 3.md",
+    "Note/计算机网络/CS144/CS144 - Lecture 2.md",
+    "Note/计算机网络/CS144/CS144 - Lecture 1.md",
+    "Note/计算机网络/CS144/CS144 - LAB2.md",
+    "Note/计算机网络/CS144/CS144 - LAB1.md",
+    "Note/计算机网络/CS144/CS144 - LAB0.md",
+    "Note/计算机网络/CS144",
+    "Note/消息队列MQ/assets",
+    "Note/消息队列MQ/Kafka.md",
+    "Note/消息队列MQ",
+    "Note/操作系统/MIT6.S081/assets",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab9.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab8前置.md",
+    "Note/手搓/assets",
+    "Note/手搓",
+    "Note/分布式系统/MIT6.5840/assets",
+    "Note/x86汇编/assets",
+    "未命名.canvas"
   ]
 }
