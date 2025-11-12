@@ -21,19 +21,8 @@
               "icon": "lucide-file",
               "title": "SQL碎片知识"
             }
-          },
-          {
-            "id": "f90b9cc0aa2455a6",
-            "type": "leaf",
-            "state": {
-              "type": "empty",
-              "state": {},
-              "icon": "lucide-file",
-              "title": "新标签页"
-            }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -192,8 +181,9 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "f90b9cc0aa2455a6",
+  "active": "4a09f4f61785ed37",
   "lastOpenFiles": [
+    "未命名.base",
     "Note/SQL学习记录/SQL碎片知识.md",
     "README.md",
     "Note/未命名.md",
@@ -235,7 +225,6 @@
     "Note/消息队列MQ",
     "Note/操作系统/MIT6.S081/assets",
     "Note/操作系统/MIT6.S081/MIT6.S081-lab9.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab8前置.md",
     "Note/手搓/assets",
     "Note/手搓",
     "Note/分布式系统/MIT6.5840/assets",
