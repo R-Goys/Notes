@@ -21,8 +21,19 @@
               "icon": "lucide-file",
               "title": "SQL碎片知识"
             }
+          },
+          {
+            "id": "f90b9cc0aa2455a6",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "新标签页"
+            }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -151,9 +162,19 @@
               "icon": "lucide-list",
               "title": "SQL碎片知识 的大纲"
             }
+          },
+          {
+            "id": "cba962a4249e1b23",
+            "type": "leaf",
+            "state": {
+              "type": "git-view",
+              "state": {},
+              "icon": "git-pull-request",
+              "title": "Source Control"
+            }
           }
         ],
-        "currentTab": 3
+        "currentTab": 4
       }
     ],
     "direction": "horizontal",
@@ -171,10 +192,10 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "d9e79f3b3d34084c",
+  "active": "f90b9cc0aa2455a6",
   "lastOpenFiles": [
-    "README.md",
     "Note/SQL学习记录/SQL碎片知识.md",
+    "README.md",
     "Note/未命名.md",
     "conflict-files-obsidian-git.md",
     "Note/计组笔记/计算机组成原理的学习笔记(9)-- CPU·其一 CPU的基本概念流水线技术数据通路.md",
