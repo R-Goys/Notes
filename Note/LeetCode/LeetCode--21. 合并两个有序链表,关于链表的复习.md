@@ -100,6 +100,40 @@ func mergeTwoLists(list1 *ListNode, list2 *ListNode) *ListNode {
 }
 ```
 
+# 三刷
+
+优雅一点的cpp
+
+```cpp
+class Solution {
+public:
+    ListNode* mergeTwoLists(ListNode* list1, ListNode* list2) {
+        ListNode* node1 = list1;
+        ListNode* node2 = list2;
+        ListNode* dummy = new ListNode();
+        ListNode* tmp = dummy;
+
+        while (node1 || node2) {
+            if (node1 && node2) {
+                if (node1->val < node2->val) {
+                    tmp->next = node1;
+                    node1 = node1->next;
+                } else {
+                    tmp->next = node2;
+                    node2 = node2->next;
+                }
+                tmp = tmp->next;
+                continue;
+            }
+            tmp->next = node1 ? node1 : node2;
+            node1 = nullptr;
+            node2 = nullptr;
+        }
+        return dummy->next;
+    }
+};
+```
+
 
 
 
