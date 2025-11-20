@@ -1,0 +1,234 @@
+{
+  "main": {
+    "id": "4cc2ec2edac22072",
+    "type": "split",
+    "children": [
+      {
+        "id": "872895140dd67852",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "d9e79f3b3d34084c",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Note/SQL学习记录/SQL碎片知识.md",
+                "mode": "preview",
+                "source": false,
+                "backlinks": false
+              },
+              "icon": "lucide-file",
+              "title": "SQL碎片知识"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "6dc81153a1d59055",
+    "type": "split",
+    "children": [
+      {
+        "id": "2badff70c5473d44",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4a09f4f61785ed37",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "2b0dbb45ae780e7d",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": true,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "405d6ac65073a588",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 236.50016403198242
+  },
+  "right": {
+    "id": "2662e897c58f63a9",
+    "type": "split",
+    "children": [
+      {
+        "id": "36ea3032f4a0b4f8",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "7a6a49a2d3894590",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Note/SQL学习记录/SQL碎片知识.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "SQL碎片知识 的反向链接列表"
+            }
+          },
+          {
+            "id": "ebf9a1995162e6a0",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Note/SQL学习记录/SQL碎片知识.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "SQL碎片知识 的出链列表"
+            }
+          },
+          {
+            "id": "06ff5e354fbcdf3f",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "39123224e6a5ae25",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Note/SQL学习记录/SQL碎片知识.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "SQL碎片知识 的大纲"
+            }
+          },
+          {
+            "id": "cba962a4249e1b23",
+            "type": "leaf",
+            "state": {
+              "type": "git-view",
+              "state": {},
+              "icon": "git-pull-request",
+              "title": "Source Control"
+            }
+          }
+        ],
+        "currentTab": 3
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:创建新数据库": false,
+      "obsidian-git:Open Git source control": false
+    }
+  },
+  "active": "d9e79f3b3d34084c",
+  "lastOpenFiles": [
+    "Note/Redis/Redis 知识碎片.md",
+    "Note/Redis/Redis 基础部分.md",
+    "Note/Redis/在用Docker配置Redis哨兵节点的时候出现的错误及其解决.md",
+    "Note/SQL学习记录/SQL碎片知识.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab5.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab4前置.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab4.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab3前置.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab3.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab2.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab1.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-环境搭建.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab8前置.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab7前置.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab7.md",
+    "Note/操作系统/MIT6.S081/MIT6.S081-lab5前置.md",
+    "未命名.base",
+    "README.md",
+    "Note/未命名.md",
+    "conflict-files-obsidian-git.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(9)-- CPU·其一 CPU的基本概念流水线技术数据通路.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(8)-- 指令系统·其一 指令的组成以及数据寻址方式RISK和CISK.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(7)-- 存储器·其二 容量扩展多模块存储系统外存Cache虚拟存储器.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(6)-- 存储器·其一 SRAMDRAMROM主存储器的初步认识.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(5)--数据的表示与运算·其四 浮点数的储存和加减内存对齐大端小端.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(4)--数据的表示与运算·其三 补码的乘法以及原码补码的除法.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(3)--数据表示与运算·其二 逻辑门和加减乘.md",
+    "Note/计组笔记",
+    "Note/计算机网络/CS144/assets/image-20250602150045383.png",
+    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
+    "Note/计算机网络/CS144/assets/image-20250602140428113.png",
+    "Note/计算机网络/CS144/assets/image-20250601203547948.png",
+    "Note/计算机网络/CS144/assets/image-20250529172155388.png",
+    "Note/计算机网络/CS144/assets/image-20250529171906590.png",
+    "Note/计算机网络/CS144/assets/image-20250529164803268.png",
+    "Note/计算机网络/CS144/assets/image-20250528155327866.png",
+    "Note/计算机网络/CS144/assets/image-20250528145653036.png",
+    "Note/计算机网络/CS144/assets/image-20250528145040176.png",
+    "Note/计算机网络/CS144/assets",
+    "Note/计算机网络/CS144",
+    "Note/消息队列MQ/assets",
+    "Note/消息队列MQ",
+    "Note/操作系统/MIT6.S081/assets",
+    "Note/手搓/assets",
+    "Note/手搓",
+    "Note/分布式系统/MIT6.5840/assets",
+    "未命名.canvas"
+  ]
+}
