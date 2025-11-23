@@ -183,11 +183,11 @@
   },
   "active": "d9e79f3b3d34084c",
   "lastOpenFiles": [
+    "Note/Redis/Redis 基础部分.md",
+    "Note/Redis/Redis 知识碎片.md",
     "Note/消息队列MQ/Kafka.md",
     "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
     "Note/SQL学习记录/SQL碎片知识.md",
-    "Note/Redis/Redis 知识碎片.md",
-    "Note/Redis/Redis 基础部分.md",
     "Note/Redis/在用Docker配置Redis哨兵节点的时候出现的错误及其解决.md",
     "Note/操作系统/MIT6.S081/MIT6.S081-lab5.md",
     "Note/操作系统/MIT6.S081/MIT6.S081-lab4前置.md",
