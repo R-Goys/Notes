@@ -13,13 +13,13 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Note/Redis/Redis 基础部分.md",
+                "file": "Note/Redis/Redis 知识碎片.md",
                 "mode": "source",
                 "source": false,
                 "backlinks": false
               },
               "icon": "lucide-file",
-              "title": "Redis 基础部分"
+              "title": "Redis 知识碎片"
             }
           }
         ]
@@ -143,13 +143,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/Redis/Redis 基础部分.md",
+                "file": "Note/Redis/Redis 知识碎片.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Redis 基础部分 的大纲"
+              "title": "Redis 知识碎片 的大纲"
             }
           },
           {
@@ -183,8 +183,8 @@
   },
   "active": "d9e79f3b3d34084c",
   "lastOpenFiles": [
-    "Note/Redis/Redis 知识碎片.md",
     "Note/Redis/Redis 基础部分.md",
+    "Note/Redis/Redis 知识碎片.md",
     "Note/消息队列MQ/Kafka.md",
     "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
     "Note/SQL学习记录/SQL碎片知识.md",
