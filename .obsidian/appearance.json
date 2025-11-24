@@ -1,7 +1,7 @@
 {
   "cssTheme": "Maple",
   "accentColor": "#3f603e",
-  "interfaceFontFamily": "Maple Mono Normal NL",
+  "interfaceFontFamily": "Maple Mono Normal NL,Adwaita Mono",
   "textFontFamily": "Maple Mono Normal NL",
   "monospaceFontFamily": "Maple Mono Normal NL",
   "theme": "moonstone"
