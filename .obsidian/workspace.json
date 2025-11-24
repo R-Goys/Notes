@@ -181,8 +181,10 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "d9e79f3b3d34084c",
+  "active": "4a09f4f61785ed37",
   "lastOpenFiles": [
+    "Note/计算机网络/计算机网络.md",
+    "Note/操作系统/操作系统碎片知识.md",
     "Note/Redis/Redis 知识碎片.md",
     "Note/Redis/Redis 基础部分.md",
     "Note/消息队列MQ/Kafka.md",
@@ -208,8 +210,6 @@
     "Note/计组笔记/计算机组成原理的学习笔记(9)-- CPU·其一 CPU的基本概念流水线技术数据通路.md",
     "Note/计组笔记/计算机组成原理的学习笔记(8)-- 指令系统·其一 指令的组成以及数据寻址方式RISK和CISK.md",
     "Note/计组笔记/计算机组成原理的学习笔记(7)-- 存储器·其二 容量扩展多模块存储系统外存Cache虚拟存储器.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(6)-- 存储器·其一 SRAMDRAMROM主存储器的初步认识.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(5)--数据的表示与运算·其四 浮点数的储存和加减内存对齐大端小端.md",
     "Note/计组笔记",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
     "Note/计算机网络/CS144/assets/image-20250602145413746.png",
