@@ -13,13 +13,13 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Note/计算机网络/CS144/CS144 - Lecture 3.md",
+                "file": "Note/计算机网络/网络编程随手记.md",
                 "mode": "source",
                 "source": false,
                 "backlinks": false
               },
               "icon": "lucide-file",
-              "title": "CS144 - Lecture 3"
+              "title": "网络编程随手记"
             }
           }
         ]
@@ -143,13 +143,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/计算机网络/CS144/CS144 - Lecture 3.md",
+                "file": "Note/计算机网络/网络编程随手记.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "CS144 - Lecture 3 的大纲"
+              "title": "网络编程随手记 的大纲"
             }
           },
           {
@@ -183,9 +183,10 @@
   },
   "active": "d9e79f3b3d34084c",
   "lastOpenFiles": [
+    "Note/计算机网络/计算机网络.md",
+    "Note/计算机网络/CS144/CS144 - Lecture 3.md",
     "Note/计算机网络/CS144/CS144 - Lecture 2.md",
     "Note/计算机网络/CS144/CS144 - Lecture 1.md",
-    "Note/计算机网络/计算机网络.md",
     "Note/计算机网络/网络编程随手记.md",
     "Note/操作系统/操作系统碎片知识.md",
     "Note/Redis/Redis 知识碎片.md",
@@ -209,7 +210,6 @@
     "未命名.base",
     "README.md",
     "Note/未命名.md",
-    "conflict-files-obsidian-git.md",
     "Note/计组笔记",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
     "Note/计算机网络/CS144/assets/image-20250602145413746.png",
