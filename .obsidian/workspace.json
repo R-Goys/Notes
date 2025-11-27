@@ -13,13 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Note/计算机网络/网络编程随手记.md",
+                "file": "Note/消息队列MQ/Kafka.md",
                 "mode": "source",
-                "source": false,
-                "backlinks": false
+                "source": false
               },
               "icon": "lucide-file",
-              "title": "网络编程随手记"
+              "title": "Kafka"
             }
           }
         ]
@@ -79,7 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 236.50016403198242
+    "width": 266.01103591918945
   },
   "right": {
     "id": "2662e897c58f63a9",
@@ -88,86 +87,55 @@
       {
         "id": "36ea3032f4a0b4f8",
         "type": "tabs",
+        "dimension": 24.84472049689441,
         "children": [
           {
-            "id": "7a6a49a2d3894590",
+            "id": "5280d8cefa0e6ce4",
             "type": "leaf",
             "state": {
-              "type": "backlink",
-              "state": {
-                "file": "Note/SQL学习记录/SQL碎片知识.md",
-                "collapseAll": false,
-                "extraContext": false,
-                "sortOrder": "alphabetical",
-                "showSearch": false,
-                "searchQuery": "",
-                "backlinkCollapsed": false,
-                "unlinkedCollapsed": true
-              },
-              "icon": "links-coming-in",
-              "title": "SQL碎片知识 的反向链接列表"
+              "type": "calendar",
+              "state": {},
+              "icon": "calendar-with-checkmark",
+              "title": "Calendar"
             }
           },
           {
-            "id": "ebf9a1995162e6a0",
+            "id": "98baabfe505f8f35",
             "type": "leaf",
             "state": {
-              "type": "outgoing-link",
-              "state": {
-                "file": "Note/SQL学习记录/SQL碎片知识.md",
-                "linksCollapsed": false,
-                "unlinkedCollapsed": true
-              },
-              "icon": "links-going-out",
-              "title": "SQL碎片知识 的出链列表"
+              "type": "git-view",
+              "state": {},
+              "icon": "git-pull-request",
+              "title": "Source Control"
             }
-          },
-          {
-            "id": "06ff5e354fbcdf3f",
-            "type": "leaf",
-            "state": {
-              "type": "tag",
-              "state": {
-                "sortOrder": "frequency",
-                "useHierarchy": true,
-                "showSearch": false,
-                "searchQuery": ""
-              },
-              "icon": "lucide-tags",
-              "title": "标签"
-            }
-          },
+          }
+        ]
+      },
+      {
+        "id": "72347aaa5060e71a",
+        "type": "tabs",
+        "dimension": 75.15527950310559,
+        "children": [
           {
             "id": "39123224e6a5ae25",
             "type": "leaf",
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/计算机网络/网络编程随手记.md",
+                "file": "Note/消息队列MQ/Kafka.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "网络编程随手记 的大纲"
-            }
-          },
-          {
-            "id": "cba962a4249e1b23",
-            "type": "leaf",
-            "state": {
-              "type": "git-view",
-              "state": {},
-              "icon": "lucide-ghost",
-              "title": "git-view"
+              "title": "Kafka 的大纲"
             }
           }
-        ],
-        "currentTab": 3
+        ]
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 378
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -183,11 +151,14 @@
   },
   "active": "d9e79f3b3d34084c",
   "lastOpenFiles": [
+    "Note/计算机网络/网络编程随手记.md",
+    "未命名.canvas",
+    "未命名 1.canvas",
+    "未命名 2.canvas",
     "Note/计算机网络/计算机网络.md",
     "Note/计算机网络/CS144/CS144 - Lecture 3.md",
     "Note/计算机网络/CS144/CS144 - Lecture 2.md",
     "Note/计算机网络/CS144/CS144 - Lecture 1.md",
-    "Note/计算机网络/网络编程随手记.md",
     "Note/操作系统/操作系统碎片知识.md",
     "Note/Redis/Redis 知识碎片.md",
     "Note/Redis/Redis 基础部分.md",
@@ -209,7 +180,6 @@
     "Note/操作系统/MIT6.S081/MIT6.S081-lab5前置.md",
     "未命名.base",
     "README.md",
-    "Note/未命名.md",
     "Note/计组笔记",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
     "Note/计算机网络/CS144/assets/image-20250602145413746.png",
@@ -228,7 +198,6 @@
     "Note/操作系统/MIT6.S081/assets",
     "Note/手搓/assets",
     "Note/手搓",
-    "Note/分布式系统/MIT6.5840/assets",
-    "未命名.canvas"
+    "Note/分布式系统/MIT6.5840/assets"
   ]
 }
