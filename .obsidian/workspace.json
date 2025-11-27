@@ -11,14 +11,12 @@
             "id": "d9e79f3b3d34084c",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "image",
               "state": {
-                "file": "Note/消息队列MQ/Kafka.md",
-                "mode": "source",
-                "source": false
+                "file": "Note/计算机网络/CS144/assets/image-20250602140428113.png"
               },
-              "icon": "lucide-file",
-              "title": "Kafka"
+              "icon": "lucide-image",
+              "title": "image-20250602140428113"
             }
           }
         ]
@@ -87,7 +85,7 @@
       {
         "id": "36ea3032f4a0b4f8",
         "type": "tabs",
-        "dimension": 24.84472049689441,
+        "dimension": 24.90302560124127,
         "children": [
           {
             "id": "5280d8cefa0e6ce4",
@@ -108,13 +106,61 @@
               "icon": "git-pull-request",
               "title": "Source Control"
             }
+          },
+          {
+            "id": "504cd0abe9eb14c3",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "QQ_1748236698653 的反向链接列表"
+            }
+          },
+          {
+            "id": "48b36a1a2873e875",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "QQ_1748236698653 的出链列表"
+            }
+          },
+          {
+            "id": "06ce78dc3a9e8c02",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
           }
         ]
       },
       {
         "id": "72347aaa5060e71a",
         "type": "tabs",
-        "dimension": 75.15527950310559,
+        "dimension": 75.09697439875873,
         "children": [
           {
             "id": "39123224e6a5ae25",
@@ -122,13 +168,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/消息队列MQ/Kafka.md",
+                "file": "Note/计算机网络/CS144/assets/image-20250602140428113.png",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Kafka 的大纲"
+              "title": "image-20250602140428113 的大纲"
             }
           }
         ]
@@ -151,18 +197,32 @@
   },
   "active": "d9e79f3b3d34084c",
   "lastOpenFiles": [
+    "Note/计算机网络/CS144/CS144 - LAB1.md",
+    "Note/计算机网络/CS144/CS144 - LAB0.md",
+    "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
+    "Note/计算机网络/CS144/CS144 - Lecture 1.md",
+    "Note/计算机网络/CS144/assets/image-20250602150045383.png",
+    "Note/计算机网络/CS144/CS144 - LAB2.md",
+    "Note/计算机网络/CS144/assets/image-20250529164803268.png",
+    "Note/计算机网络/CS144/assets/image-20250528155327866.png",
+    "Note/计算机网络/CS144/assets/image-20250601203547948.png",
+    "Note/计算机网络/CS144/assets/image-20250528145040176.png",
+    "Note/计算机网络/CS144/assets/image-20250528144404189.png",
+    "Note/计算机网络/CS144/assets/image-20250527201924365.png",
+    "Note/计算机网络/计算机网络.md",
     "Note/计算机网络/网络编程随手记.md",
+    "Note/手搓/手写Docker.md",
+    "Note/手搓/assets/QQ_1742717877844.png",
+    "Note/手搓/assets/QQ_1742716718391.png",
+    "Note/消息队列MQ/Kafka.md",
     "未命名.canvas",
     "未命名 1.canvas",
     "未命名 2.canvas",
-    "Note/计算机网络/计算机网络.md",
     "Note/计算机网络/CS144/CS144 - Lecture 3.md",
     "Note/计算机网络/CS144/CS144 - Lecture 2.md",
-    "Note/计算机网络/CS144/CS144 - Lecture 1.md",
     "Note/操作系统/操作系统碎片知识.md",
     "Note/Redis/Redis 知识碎片.md",
     "Note/Redis/Redis 基础部分.md",
-    "Note/消息队列MQ/Kafka.md",
     "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
     "Note/SQL学习记录/SQL碎片知识.md",
     "Note/Redis/在用Docker配置Redis哨兵节点的时候出现的错误及其解决.md",
@@ -175,22 +235,8 @@
     "Note/操作系统/MIT6.S081/MIT6.S081-lab1.md",
     "Note/操作系统/MIT6.S081/MIT6.S081-环境搭建.md",
     "Note/操作系统/MIT6.S081/MIT6.S081-lab8前置.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab7前置.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab7.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab5前置.md",
     "未命名.base",
-    "README.md",
     "Note/计组笔记",
-    "Note/计算机网络/CS144/assets/image-20250602150045383.png",
-    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
-    "Note/计算机网络/CS144/assets/image-20250602140428113.png",
-    "Note/计算机网络/CS144/assets/image-20250601203547948.png",
-    "Note/计算机网络/CS144/assets/image-20250529172155388.png",
-    "Note/计算机网络/CS144/assets/image-20250529171906590.png",
-    "Note/计算机网络/CS144/assets/image-20250529164803268.png",
-    "Note/计算机网络/CS144/assets/image-20250528155327866.png",
-    "Note/计算机网络/CS144/assets/image-20250528145653036.png",
-    "Note/计算机网络/CS144/assets/image-20250528145040176.png",
     "Note/计算机网络/CS144/assets",
     "Note/计算机网络/CS144",
     "Note/消息队列MQ/assets",
