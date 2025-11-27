@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Note/计算机网络/CS144/CS144 - LAB0.md",
+                "file": "Note/计算机网络/计算机网络.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "CS144 - LAB0"
+              "title": "计算机网络"
             }
           }
         ]
@@ -170,20 +170,20 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/计算机网络/CS144/CS144 - LAB0.md",
+                "file": "Note/计算机网络/计算机网络.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "CS144 - LAB0 的大纲"
+              "title": "计算机网络 的大纲"
             }
           }
         ]
       }
     ],
     "direction": "horizontal",
-    "width": 378
+    "width": 310
   },
   "left-ribbon": {
     "hiddenItems": {
@@ -200,8 +200,9 @@
   },
   "active": "d9e79f3b3d34084c",
   "lastOpenFiles": [
-    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
+    "Note/计算机网络/网络编程随手记.md",
     "Note/计算机网络/CS144/CS144 - LAB0.md",
+    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
     "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
     "Note/计算机网络/CS144/CS144 - LAB1.md",
@@ -217,7 +218,6 @@
     "Note/计算机网络/CS144/assets/image-20250528144404189.png",
     "Note/计算机网络/CS144/assets/image-20250527201924365.png",
     "Note/计算机网络/计算机网络.md",
-    "Note/计算机网络/网络编程随手记.md",
     "Note/手搓/手写Docker.md",
     "Note/消息队列MQ/Kafka.md",
     "未命名.canvas",
