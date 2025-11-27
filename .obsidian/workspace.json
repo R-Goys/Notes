@@ -146,6 +146,16 @@
               "icon": "lucide-tags",
               "title": "标签"
             }
+          },
+          {
+            "id": "94b81c43b87a472e",
+            "type": "leaf",
+            "state": {
+              "type": "git-view",
+              "state": {},
+              "icon": "git-pull-request",
+              "title": "Source Control"
+            }
           }
         ]
       },
@@ -190,13 +200,13 @@
   },
   "active": "d9e79f3b3d34084c",
   "lastOpenFiles": [
+    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
+    "Note/计算机网络/CS144/CS144 - LAB0.md",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
     "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
     "Note/计算机网络/CS144/CS144 - LAB1.md",
     "Note/计算机网络/CS144/CS144 - Lecture 3.md",
-    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
     "Note/计算机网络/CS144/CS144 - Lecture 2.md",
-    "Note/计算机网络/CS144/CS144 - LAB0.md",
     "Note/计算机网络/CS144/assets/image-20250601203547948.png",
     "Note/计算机网络/CS144/assets/image-20250602140428113.png",
     "Note/计算机网络/CS144/CS144 - Lecture 1.md",
