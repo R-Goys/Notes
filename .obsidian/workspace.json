@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Note/计算机网络/计算机网络.md",
+                "file": "Note/计算机网络/CS144/CS144 - LAB2.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "计算机网络"
+              "title": "CS144 - LAB2"
             }
           }
         ]
@@ -90,22 +90,12 @@
         "dimension": 29.56989247311828,
         "children": [
           {
-            "id": "c8c418dcd3beadf6",
-            "type": "leaf",
-            "state": {
-              "type": "calendar",
-              "state": {},
-              "icon": "calendar-with-checkmark",
-              "title": "Calendar"
-            }
-          },
-          {
             "id": "504cd0abe9eb14c3",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Note/计算机网络/CS144/CS144 - LAB0.md",
+                "file": "Note/计算机网络/CS144/CS144 - LAB2.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -115,7 +105,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "CS144 - LAB0 的反向链接列表"
+              "title": "CS144 - LAB2 的反向链接列表"
             }
           },
           {
@@ -170,13 +160,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/计算机网络/计算机网络.md",
+                "file": "Note/计算机网络/CS144/CS144 - LAB2.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "计算机网络 的大纲"
+              "title": "CS144 - LAB2 的大纲"
             }
           }
         ]
@@ -193,16 +183,17 @@
       "daily-notes:打开/创建今天的日记": false,
       "templates:插入模板": false,
       "command-palette:打开命令面板": false,
-      "bases:创建新数据库": false,
-      "obsidian-git:Open Git source control": false,
-      "obsidian-excalidraw-plugin:新建绘图文件": false
+      "bases:创建新数据库": false
     }
   },
-  "active": "4a09f4f61785ed37",
+  "active": "8b3de30737ad0458",
   "lastOpenFiles": [
+    "Note/计算机网络/CS144/assets/image-20250602150045383.png",
+    "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
+    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
+    "Note/计算机网络/计算机网络.md",
     "assets",
     "assert/Pasted.md",
-    "Note/计算机网络/计算机网络.md",
     "assert",
     "Note/计算机网络/assets/image1.png",
     "Note/计算机网络/网络编程随手记.md",
@@ -218,10 +209,8 @@
     "] 来调整半连接队列的大小，同时开启 `tcp_syncookies` 来实现不使用半连接队列的情况下建立连接.md",
     "半连接队列介绍][.md",
     "Note/计算机网络/CS144/assets/image-20250528145653036.png",
-    "Note/计算机网络/CS144/assets/image-20250528144404189.png",
     "Note/计算机网络/CS144/CS144 - Lecture 2.md",
     "Note/计算机网络/CS144/CS144 - LAB1.md",
-    "Note/计算机网络/CS144/assets/image-20250527201924365.png",
     "Note/计算机网络/CS144/CS144 - LAB0.md",
     "Note/计算机网络/CS144/CS144 - Lecture 3.md",
     "Note/计算机网络/CS144/CS144 - LAB2.md",
@@ -247,7 +236,6 @@
     "Note/计算机网络/CS144",
     "Note/消息队列MQ/assets",
     "Note/消息队列MQ",
-    "Note/操作系统/MIT6.S081/assets",
-    "Note/手搓/assets"
+    "Note/操作系统/MIT6.S081/assets"
   ]
 }
