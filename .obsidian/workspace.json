@@ -20,8 +20,23 @@
               "icon": "lucide-file",
               "title": "计算机网络"
             }
+          },
+          {
+            "id": "f193241f83652c7c",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Note/计算机网络/计算机网络.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "计算机网络"
+            }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -188,12 +203,14 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "8b3de30737ad0458",
+  "active": "f193241f83652c7c",
   "lastOpenFiles": [
     "Note/计算机网络/网络编程随手记.md",
-    "Note/计算机网络/计算机网络.md",
-    "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
+    "Note/计算机网络/CS144/CS144 - Lecture 3.md",
     "Note/计算机网络/CS144/CS144 - Lecture 1.md",
+    "Note/计算机网络/计算机网络.md",
+    "Note/计算机网络/CS144/CS144 - Lecture 2.md",
+    "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
     "Note/计算机网络/CS144/CS144 - LAB2.md",
     "Note/计算机网络/CS144/assets/image-20250602145413746.png",
@@ -211,10 +228,8 @@
     "Pasted image 20251129153429.png",
     "] 来调整半连接队列的大小，同时开启 `tcp_syncookies` 来实现不使用半连接队列的情况下建立连接.md",
     "半连接队列介绍][.md",
-    "Note/计算机网络/CS144/CS144 - Lecture 2.md",
     "Note/计算机网络/CS144/CS144 - LAB1.md",
     "Note/计算机网络/CS144/CS144 - LAB0.md",
-    "Note/计算机网络/CS144/CS144 - Lecture 3.md",
     "Note/手搓/手写Docker.md",
     "Note/消息队列MQ/Kafka.md",
     "未命名.canvas",
