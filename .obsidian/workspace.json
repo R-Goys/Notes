@@ -11,14 +11,12 @@
             "id": "8b3de30737ad0458",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "image",
               "state": {
-                "file": "Note/计算机网络/CS144/CS144 - Lecture 1.md",
-                "mode": "source",
-                "source": false
+                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png"
               },
-              "icon": "lucide-file",
-              "title": "CS144 - Lecture 1"
+              "icon": "lucide-image",
+              "title": "QQ_1748236698653"
             }
           }
         ]
@@ -95,7 +93,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Note/计算机网络/CS144/CS144 - Lecture 1.md",
+                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -105,7 +103,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "CS144 - Lecture 1 的反向链接列表"
+              "title": "QQ_1748236698653 的反向链接列表"
             }
           },
           {
@@ -148,7 +146,7 @@
             }
           }
         ],
-        "currentTab": 3
+        "currentTab": 1
       },
       {
         "id": "72347aaa5060e71a",
@@ -161,13 +159,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/计算机网络/CS144/CS144 - Lecture 1.md",
+                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "CS144 - Lecture 1 的大纲"
+              "title": "QQ_1748236698653 的大纲"
             }
           }
         ]
@@ -188,8 +186,9 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "94b81c43b87a472e",
+  "active": "8b3de30737ad0458",
   "lastOpenFiles": [
+    "Note/计算机网络/CS144/CS144 - Lecture 1.md",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
     "Note/计算机网络/CS144/CS144 - LAB2.md",
     "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
@@ -200,7 +199,6 @@
     "assert",
     "Note/计算机网络/assets/image1.png",
     "Note/计算机网络/网络编程随手记.md",
-    "Note/计算机网络/CS144/CS144 - Lecture 1.md",
     "Note/计算机网络/assets/Pasted image 20251129153656.png",
     "Note/计算机网络/assets/Pasted image 20251129153653.png",
     "Note/计算机网络/assets/Pasted image 20251129153542.png",
