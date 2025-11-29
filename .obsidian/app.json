@@ -1,5 +1,7 @@
 {
   "strictLineBreaks": true,
   "attachmentFolderPath": "./assets",
-  "newLinkFormat": "shortest"
+  "newLinkFormat": "shortest",
+  "uriCallbacks": false,
+  "showUnsupportedFiles": false
 }

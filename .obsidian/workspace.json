@@ -198,11 +198,14 @@
       "obsidian-excalidraw-plugin:新建绘图文件": false
     }
   },
-  "active": "8b3de30737ad0458",
+  "active": "4a09f4f61785ed37",
   "lastOpenFiles": [
-    "Note/计算机网络/assets/Pasted image 20251129153757.png",
-    "Note/计算机网络/网络编程随手记.md",
+    "assets",
+    "assert/Pasted.md",
     "Note/计算机网络/计算机网络.md",
+    "assert",
+    "Note/计算机网络/assets/image1.png",
+    "Note/计算机网络/网络编程随手记.md",
     "Note/计算机网络/CS144/CS144 - Lecture 1.md",
     "Note/计算机网络/assets/Pasted image 20251129153656.png",
     "Note/计算机网络/assets/Pasted image 20251129153653.png",
@@ -220,7 +223,6 @@
     "Note/计算机网络/CS144/CS144 - LAB1.md",
     "Note/计算机网络/CS144/assets/image-20250527201924365.png",
     "Note/计算机网络/CS144/CS144 - LAB0.md",
-    "Note/计算机网络/CS144/assets/image-20250602145413746.png",
     "Note/计算机网络/CS144/CS144 - Lecture 3.md",
     "Note/计算机网络/CS144/CS144 - LAB2.md",
     "Note/手搓/手写Docker.md",
@@ -239,7 +241,6 @@
     "Note/操作系统/MIT6.S081/MIT6.S081-lab4.md",
     "Note/操作系统/MIT6.S081/MIT6.S081-lab3前置.md",
     "Note/操作系统/MIT6.S081/MIT6.S081-lab3.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab2.md",
     "未命名.base",
     "Note/计组笔记",
     "Note/计算机网络/CS144/assets",
@@ -247,7 +248,6 @@
     "Note/消息队列MQ/assets",
     "Note/消息队列MQ",
     "Note/操作系统/MIT6.S081/assets",
-    "Note/手搓/assets",
-    "Note/手搓"
+    "Note/手搓/assets"
   ]
 }
