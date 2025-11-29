@@ -1,3 +1,5 @@
 {
-  "strictLineBreaks": true
+  "strictLineBreaks": true,
+  "attachmentFolderPath": "./assets",
+  "newLinkFormat": "shortest"
 }
