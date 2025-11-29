@@ -11,12 +11,14 @@
             "id": "8b3de30737ad0458",
             "type": "leaf",
             "state": {
-              "type": "image",
+              "type": "markdown",
               "state": {
-                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png"
+                "file": "Note/计算机网络/计算机网络.md",
+                "mode": "source",
+                "source": false
               },
-              "icon": "lucide-image",
-              "title": "QQ_1748236698653"
+              "icon": "lucide-file",
+              "title": "计算机网络"
             }
           }
         ]
@@ -93,7 +95,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
+                "file": "Note/计算机网络/计算机网络.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +105,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "QQ_1748236698653 的反向链接列表"
+              "title": "计算机网络 的反向链接列表"
             }
           },
           {
@@ -112,12 +114,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
+                "file": "Note/计算机网络/计算机网络.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "QQ_1748236698653 的出链列表"
+              "title": "计算机网络 的出链列表"
             }
           },
           {
@@ -159,13 +161,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
+                "file": "Note/计算机网络/计算机网络.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "QQ_1748236698653 的大纲"
+              "title": "计算机网络 的大纲"
             }
           }
         ]
@@ -188,17 +190,17 @@
   },
   "active": "8b3de30737ad0458",
   "lastOpenFiles": [
+    "Note/计算机网络/网络编程随手记.md",
+    "Note/计算机网络/计算机网络.md",
+    "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
     "Note/计算机网络/CS144/CS144 - Lecture 1.md",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
     "Note/计算机网络/CS144/CS144 - LAB2.md",
-    "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
     "Note/计算机网络/CS144/assets/image-20250602145413746.png",
-    "Note/计算机网络/计算机网络.md",
     "assets",
     "assert/Pasted.md",
     "assert",
     "Note/计算机网络/assets/image1.png",
-    "Note/计算机网络/网络编程随手记.md",
     "Note/计算机网络/assets/Pasted image 20251129153656.png",
     "Note/计算机网络/assets/Pasted image 20251129153653.png",
     "Note/计算机网络/assets/Pasted image 20251129153542.png",
