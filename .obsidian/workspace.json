@@ -68,7 +68,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "Fast",
+                "query": "延迟",
                 "matchingCase": true,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -204,7 +204,7 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "f193241f83652c7c",
+  "active": "2b0dbb45ae780e7d",
   "lastOpenFiles": [
     "Note/计算机网络/assets/image2.png",
     "Note/操作系统/操作系统碎片知识.md",
