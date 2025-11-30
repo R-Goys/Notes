@@ -4,39 +4,24 @@
     "type": "split",
     "children": [
       {
-        "id": "41865f35c67a866b",
+        "id": "a33b4f99f97f9ed3",
         "type": "tabs",
         "children": [
           {
-            "id": "8b3de30737ad0458",
+            "id": "141239fc1bcc215f",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Note/计算机网络/计算机网络.md",
+                "file": "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "计算机网络"
-            }
-          },
-          {
-            "id": "f193241f83652c7c",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "Note/计算机网络/计算机网络.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "计算机网络"
+              "title": "关于Golang的一些碎片知识"
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -68,7 +53,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "延迟",
+                "query": "",
                 "matchingCase": true,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -89,8 +74,7 @@
               "title": "书签"
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "horizontal",
@@ -130,12 +114,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Note/计算机网络/计算机网络.md",
+                "file": "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "计算机网络 的出链列表"
+              "title": "关于Golang的一些碎片知识 的出链列表"
             }
           },
           {
@@ -177,13 +161,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Note/计算机网络/计算机网络.md",
+                "file": "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "计算机网络 的大纲"
+              "title": "关于Golang的一些碎片知识 的大纲"
             }
           }
         ]
@@ -204,21 +188,40 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "2b0dbb45ae780e7d",
+  "active": "141239fc1bcc215f",
   "lastOpenFiles": [
-    "Note/计算机网络/assets/image2.png",
     "Note/操作系统/操作系统碎片知识.md",
-    "Note/计算机网络/计算机网络.md",
-    "Note/计算机网络/网络编程随手记.md",
-    "Note/计算机网络/CS144/CS144 - Lecture 3.md",
-    "Note/计算机网络/CS144/CS144 - Lecture 1.md",
-    "Note/计算机网络/CS144/CS144 - Lecture 2.md",
+    "Note/x86汇编/学习汇编随手记.md",
+    "Note/SQL学习记录/系统/MySQL学习笔记7【InnoDB】.md",
+    "Note/SQL学习记录/系统/MySQL学习笔记6【锁】.md",
+    "Note/SQL学习记录/系统/MySQL学习笔记5【SQL优化视图存储过程触发器】.md",
+    "Note/SQL学习记录/系统/MySQL学习笔记4【存储引擎和索引】.md",
+    "Note/SQL学习记录/系统/MySQL学习笔记3【事务】.md",
+    "Note/SQL学习记录/系统/MySQL学习笔记2【函数约束多表查询】.md",
+    "Note/SQL学习记录/系统/MySQL学习笔记1【DQL和DCL】.md",
+    "Note/SQL学习记录/SQL碎片知识.md",
+    "Note/Redis/Redis 知识碎片.md",
+    "Note/Redis/Redis 基础部分.md",
+    "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
+    "Note/消息队列MQ/Kafka.md",
+    "Note/消息队列MQ/assets/QQ_1742437593900.png",
+    "Note/算法杂谈/关于二分查找时的边界分类问题.md",
+    "Note/手搓/手写Docker.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(12) -- 总线和IO系统.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(11)-- CPU·其三 中断和异常多处理器相关概念.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(10)-- CPU·其二 组合逻辑控制器和微程序.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(9)-- CPU·其一 CPU的基本概念流水线技术数据通路.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(8)-- 指令系统·其一 指令的组成以及数据寻址方式RISK和CISK.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(7)-- 存储器·其二 容量扩展多模块存储系统外存Cache虚拟存储器.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(6)-- 存储器·其一 SRAMDRAMROM主存储器的初步认识.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(4)--数据的表示与运算·其三 补码的乘法以及原码补码的除法.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(2)--数据的表示和运算·其一.md",
+    "Note/计组笔记/计算机组成原理的学习笔记(1)--概述.md",
+    "Note/计算机网络/assets/image2.png",
     "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
-    "Note/计算机网络/CS144/CS144 - LAB2.md",
     "Note/计算机网络/CS144/assets/image-20250602145413746.png",
     "assets",
-    "assert/Pasted.md",
     "assert",
     "Note/计算机网络/assets/image1.png",
     "Note/计算机网络/assets/Pasted image 20251129153656.png",
@@ -226,28 +229,9 @@
     "Note/计算机网络/assets/Pasted image 20251129153542.png",
     "Note/计算机网络/assets/Pasted image 20251129153551.png",
     "Note/计算机网络/assets",
-    "Note/计算机网络/Pasted image 20251129153513.png",
-    "[[.md",
-    "Pasted image 20251129153429.png",
-    "] 来调整半连接队列的大小，同时开启 `tcp_syncookies` 来实现不使用半连接队列的情况下建立连接.md",
-    "半连接队列介绍][.md",
-    "Note/计算机网络/CS144/CS144 - LAB1.md",
-    "Note/计算机网络/CS144/CS144 - LAB0.md",
-    "Note/手搓/手写Docker.md",
-    "Note/消息队列MQ/Kafka.md",
     "未命名.canvas",
     "未命名 1.canvas",
     "未命名 2.canvas",
-    "Note/Redis/Redis 知识碎片.md",
-    "Note/Redis/Redis 基础部分.md",
-    "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
-    "Note/SQL学习记录/SQL碎片知识.md",
-    "Note/Redis/在用Docker配置Redis哨兵节点的时候出现的错误及其解决.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab5.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab4前置.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab4.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab3前置.md",
-    "Note/操作系统/MIT6.S081/MIT6.S081-lab3.md",
     "未命名.base",
     "Note/计组笔记",
     "Note/计算机网络/CS144/assets",
