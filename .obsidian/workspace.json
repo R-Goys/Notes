@@ -148,7 +148,7 @@
             }
           }
         ],
-        "currentTab": 1
+        "currentTab": 3
       },
       {
         "id": "72347aaa5060e71a",
@@ -185,11 +185,28 @@
       "templates:插入模板": false,
       "command-palette:打开命令面板": false,
       "bases:创建新数据库": false,
-      "obsidian-git:Open Git source control": false
+      "obsidian-git:Open Git source control": false,
+      "copilot:Open Copilot Chat": false
     }
   },
-  "active": "141239fc1bcc215f",
+  "active": "94b81c43b87a472e",
   "lastOpenFiles": [
+    "copilot/copilot-custom-prompts/Emojify.md",
+    "copilot/copilot-custom-prompts/Translate to Chinese.md",
+    "copilot/copilot-custom-prompts/Summarize.md",
+    "copilot/copilot-custom-prompts/Simplify.md",
+    "copilot/copilot-custom-prompts/Rewrite as tweet thread.md",
+    "copilot/copilot-custom-prompts/Rewrite as tweet.md",
+    "copilot/copilot-custom-prompts/Make shorter.md",
+    "copilot/copilot-custom-prompts/Make longer.md",
+    "copilot/copilot-custom-prompts/Generate glossary.md",
+    "copilot/copilot-custom-prompts/Fix grammar and spelling.md",
+    "copilot/copilot-custom-prompts/Explain like I am 5.md",
+    "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
+    "copilot/copilot-custom-prompts/Remove URLs.md",
+    "copilot/copilot-custom-prompts/Generate table of contents.md",
+    "copilot/copilot-custom-prompts",
+    "copilot",
     "Note/操作系统/操作系统碎片知识.md",
     "Note/x86汇编/学习汇编随手记.md",
     "Note/SQL学习记录/系统/MySQL学习笔记7【InnoDB】.md",
@@ -202,21 +219,7 @@
     "Note/SQL学习记录/SQL碎片知识.md",
     "Note/Redis/Redis 知识碎片.md",
     "Note/Redis/Redis 基础部分.md",
-    "Note/Golang的知识碎片/关于Golang的一些碎片知识.md",
-    "Note/消息队列MQ/Kafka.md",
     "Note/消息队列MQ/assets/QQ_1742437593900.png",
-    "Note/算法杂谈/关于二分查找时的边界分类问题.md",
-    "Note/手搓/手写Docker.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(12) -- 总线和IO系统.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(11)-- CPU·其三 中断和异常多处理器相关概念.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(10)-- CPU·其二 组合逻辑控制器和微程序.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(9)-- CPU·其一 CPU的基本概念流水线技术数据通路.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(8)-- 指令系统·其一 指令的组成以及数据寻址方式RISK和CISK.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(7)-- 存储器·其二 容量扩展多模块存储系统外存Cache虚拟存储器.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(6)-- 存储器·其一 SRAMDRAMROM主存储器的初步认识.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(4)--数据的表示与运算·其三 补码的乘法以及原码补码的除法.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(2)--数据的表示和运算·其一.md",
-    "Note/计组笔记/计算机组成原理的学习笔记(1)--概述.md",
     "Note/计算机网络/assets/image2.png",
     "Note/计算机网络/CS144/assets/QQ_1748236698653.png",
     "Note/计算机网络/CS144/assets/image-20250602150045383.png",
@@ -236,8 +239,6 @@
     "Note/计组笔记",
     "Note/计算机网络/CS144/assets",
     "Note/计算机网络/CS144",
-    "Note/消息队列MQ/assets",
-    "Note/消息队列MQ",
-    "Note/操作系统/MIT6.S081/assets"
+    "Note/消息队列MQ/assets"
   ]
 }
