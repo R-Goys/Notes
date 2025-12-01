@@ -694,6 +694,12 @@ Wait方法主要就是等待wg的计数器归零，陷入休眠，等待信号�
 go中使用delete关键字删除哈希表中的一个key，delete会被替换为 [`runtime.mapdelete`](https://draven.co/golang/tree/runtime.mapdelete) 函数簇中的一员，以成 [`runtime.mapdelete`](https://draven.co/golang/tree/runtime.mapdelete)为例，和读写操作一样，也需要先找到相对应的桶，然后找到对应的key，当然，如果此时正在扩容，先等待扩容完毕，再去执行删除，删除则是将当前位置的元素标记为emptyone，不会影响后续查找，同时并不是立即删除，而是打上标记，等待后续被垃圾收集器处理，且不会影响当前位置为emptyone的标记，不会影响后续查找。
 
 
+### 其他
+
+#### bmap 桶
+
+bmap 定义只包含 key 的哈希值前八位的数字，以加速查询，为什么不直接比较 key 呢？因为一个 key 可能是一个大数字，也可能是很长的字符串，cpu 直接比较耗时相对于只比较一个字节，损耗明显低了不小；除此之外，考虑到局部性原则，key 哈希值前八位这一串是通过数组遍历进行比较的，cache 命中率高，所以性能也会更高，而直接比较 key 性能就会低很多。
+
 
 ----
 
