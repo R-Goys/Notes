@@ -1204,6 +1204,8 @@ func (e *entry) tryExpungeLocked() (isExpunged bool) {
 	return p == expunged
 }
 ```
-除此之外，在 dirtyLocked 之后，还会再次刷新一次 `read map`，将最新的 `dirty map` 同步给 `read map`。
+除此之外，Store 方法中，在执行 dirtyLocked 之后，还会再次刷新一次 `read map`，将最新的 `dirty map` 同步给 `read map`。
 
 值得一提的是，小林 coding 里面写的 sync.map 八股是错的🤣建议还是自己去看[源码][https://github.com/golang/go/blob/release-branch.go1.23/src/sync/map.go]学习一下。
+
+因此我们可以知道，在高并发写的情况下，cache miss 会不断增大，性能会不断退化，甚至远远不如读写锁的 map
