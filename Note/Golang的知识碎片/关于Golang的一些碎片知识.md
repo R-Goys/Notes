@@ -1164,3 +1164,32 @@ func Test_syncmap(t *testing.T) {
 
 sync.map 分为两个 map，一个 `read map`（缓存的作用），一个 `dirty map`（存储最新最全的 kv），针对于 `read map` 基本都是无锁的，而需要对 `dirty map` 操作时需要加上互斥锁，两者其实都是一个并发不安全的原生 map。
 
+虽然是一个 cache，但是更新并不是我们写业务常见的那种，cache miss 的时候直接加载到 `read map` 中，而是统计 `cache miss` 的次数，通过 `missLocked()` 方法统计，如果当时的缓存失效的次数大于 `dirty map` 中 kv 的数量，则会执行一次同步，其实开销并不大，仅仅是将 `dirty map` 的句柄交给了 `read map` 因为他们都是 map，所以可以随意转移：
+```go
+func (m *Map) missLocked() {
+	m.misses++
+	if m.misses < len(m.dirty) {
+		return
+	}
+	m.read.Store(&readOnly{m: m.dirty})
+	m.dirty = nil
+	m.misses = 0
+}
+```
+我们会发现，此时将 `dirty map` 滞空了对吧，这里并不是说是乱写，是有说法的，在之后我们需要对这个 sync.map 进行写操作的时候，如果 cache miss，需要对 `dirty map` 进行操作，就会遇到他是 nil，此时有一个特殊处理，就是 `dirtyLocked()` 方法，如果此时 `dirty map` 为 nil，他就会执行一次同步操作，将 `read map` 里面的数据同步到 `ditry map` 中，相当于把操作延后了，我们也可以注意到，在同步的时候，会有一个方法去判断这个 entry 是否需要同步，这就是查看 entry 有没有变成 `expunged`，如果是，那么就说明这个 entry 实际上已经被删了，不需要进行同步，这样就可以在每次重新刷新 `read map` 之后能够重新刷新并压缩不需要的 entry 来节省空间，同时也更加简洁。
+
+```go
+func (m *Map) dirtyLocked() {
+	if m.dirty != nil {
+		return
+	}
+
+	read := m.loadReadOnly()
+	m.dirty = make(map[any]*entry, len(read.m))
+	for k, e := range read.m {
+		if !e.tryExpungeLocked() {
+			m.dirty[k] = e
+		}
+	}
+}
+```
