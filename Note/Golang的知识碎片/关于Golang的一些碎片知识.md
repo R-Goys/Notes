@@ -1160,3 +1160,7 @@ func Test_syncmap(t *testing.T) {
 
 回来把 1.23 版本的 sync.Map 的坑填了。
 
+旧版的 sync.map 相较于普通的读写锁 map 做了许多优化，因而在读多写少的场景下会更加高效。
+
+sync.map 分为两个 map，一个 `read map`（缓存的作用），一个 `dirty map`（存储最新最全的 kv），针对于 `read map` 基本都是无锁的，而需要对 `dirty map` 操作时需要加上互斥锁，两者其实都是一个并发不安全的原生 map。
+
