@@ -1176,7 +1176,7 @@ func (m *Map) missLocked() {
 	m.misses = 0
 }
 ```
-我们会发现，此时将 `dirty map` 滞空了对吧，这里并不是说是乱写，是有说法的，在之后我们需要对这个 sync.map 进行写操作的时候，如果 cache miss，需要对 `dirty map` 进行操作，就会遇到他是 nil，此时有一个特殊处理，就是 `dirtyLocked()` 方法，如果此时 `dirty map` 为 nil，他就会执行一次同步操作，将 `read map` 里面的数据同步到 `ditry map` 中，相当于把操作延后了，我们也可以注意到，在同步的时候，会有一个方法去判断这个 entry 是否需要同步，这就是查看 entry 有没有被删，即是不是 nil（我们调用 delete 方法的时候就会将这个 entry 变成 nil），如果是，那么就说明这个 entry 实际上已经被删了，不需要进行同步，这样就可以在每次重新刷新 `read map` 之后能够重新刷新并压缩不需要的 entry 来节省空间，相当于垃圾回收了，这样延后同步的理由是避免了读路径 cache miss 里面同步时速度变慢，保证了读的迅速，让延迟都在放写路径里面，确保了读多写少场景的高性能，并且值得注意的是，我们如果不新写入数据，就一直不会触发这个同步，而是仅仅在 `read map` 中进行操作，直到新写入数据。
+我们会发现，此时将 `dirty map` 滞空了对吧，这里并不是说是乱写，是有说法的，在之后我们需要对这个 sync.map 进行写操作的时候，如果 cache miss，需要对 `dirty map` 进行操作，就会遇到他是 nil，此时有一个特殊处理，就是 `dirtyLocked()` 方法，如果此时 `dirty map` 为 nil，他就会执行一次同步操作，将 `read map` 里面的数据同步到 `ditry map` 中，相当于把操作延后了，我们也可以注意到，在同步的时候，会有一个方法去判断这个 entry 是否需要同步，这就是查看 entry 有没有被删，即是不是 nil（**我们调用 delete 方法的时候就会将这个 read map 中的 entry 变成 nil**），如果是，那么就说明这个 entry 实际上已经被删了，不需要进行同步，这样就可以在每次重新刷新 `read map` 之后能够重新刷新并压缩不需要的 entry 来节省空间，相当于垃圾回收，这样**延后同步的好处**是避免了读路径 cache miss 里面同步时速度变慢，保证了读的迅速，让延迟都在放写路径里面，确保了读多写少场景的高性能，并且值得注意的是，我们如果不新写入数据，就一直不会触发这个同步，而是仅仅在 `read map` 中进行操作，直到新写入数据。
 
 ```go
 func (m *Map) dirtyLocked() {
@@ -1204,5 +1204,6 @@ func (e *entry) tryExpungeLocked() (isExpunged bool) {
 	return p == expunged
 }
 ```
+除此之外，在 dirtyLocked 之后，还会再次刷新一次 `read map`，将最新的 `dirty map` 同步给 `read map`。
 
-值得一提的是，小林 coding 里面写的 sync.map 八股是错的🤣
+值得一提的是，小林 coding 里面写的 sync.map 八股是错的🤣建议还是自己去看[源码][https://github.com/golang/go/blob/release-branch.go1.23/src/sync/map.go]学习一下。
