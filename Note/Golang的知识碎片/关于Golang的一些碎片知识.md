@@ -1205,4 +1205,4 @@ func (e *entry) tryExpungeLocked() (isExpunged bool) {
 }
 ```
 
-值得一提的是，小林 c o ding
+值得一提的是，小林 coding 里面写的 sync.map 八股是错的🤣
