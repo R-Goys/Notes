@@ -231,7 +231,7 @@ binlog 有三种文件格式 `STATEMENT`，`ROW`，`MIXED` ，`statement` 是默
 
 我们的 binlog 写入磁盘的流程如下（借用小林coding的图）：
 
-![binlog cach](./assets/binlogcache.drawio.png)
+![binlog cach](binlogcache.drawio.png)
 
 我们的线程会将自己的 binlog cache 通过 write 系统调用写入到内核，此时是缓存在内核的 page cache 中，然后才会通过 fsync 持久化到磁盘，这里就是真正的磁盘 I/O 。
 

@@ -14,7 +14,7 @@
 
 而我们也可以在命令行进行消费者和生产者的操作，生产者输入`kafka-console-producer.sh --bootstrap-server ip:port --topic [your topic]`，消费者则是将producer换成consumer即可，如下图所示：
 
-![QQ_1742437593900](./assets/QQ_1742437593900.png)
+![QQ_1742437593900](QQ_1742437593900.png)
 
 除此之外，加上`--from-beginning`字段之后，consumer会加载所有的消息。
 
