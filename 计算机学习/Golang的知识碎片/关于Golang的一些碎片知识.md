@@ -145,7 +145,7 @@ netpoll 其实就是一个 epoll_wait，他会把准备就绪的 goroutine 放�
 netpoll 的触发点有：
 - findrunnable 中，没有找到可以运行的 goroutine
 - startTheWorldWithSema 中，也就是 GC 的 STW 结束前，会调用非阻塞的 netpoll，然后将就绪的 groutine 队列加入到调度中。
-- pollWork，这个函数会在 gcDrain 中被调用，
+- pollWork，这个函数会在 gcDrain 中被调用，原因是 gcDrain 表示的是从 gcWork 队列里面拉取任务来进行三色标记任务，优先级很低，所以当遇到其他任务，如网络事件，计时事件触发就需要及时返回去执行他们，而不是在这里执行垃圾标记。
 
 ----
 
