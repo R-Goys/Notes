@@ -143,7 +143,8 @@ Go 的网络轮询器其实就是为网络 I/O 做了一层优化，深入到 `n
 netpoll 其实就是一个 epoll_wait，他会把准备就绪的 goroutine 放入到全局队列中，从而让他们能够被调度。
 
 netpoll 的触发点有：
-- findrunnable
+- findrunnable 中，没有找到可以运行的 goroutine
+- 
 
 ----
 
