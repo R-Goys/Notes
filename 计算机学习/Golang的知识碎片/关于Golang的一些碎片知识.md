@@ -144,6 +144,7 @@ netpoll 其实就是一个 epoll_wait，他会把准备就绪的 goroutine 放�
 
 netpoll 的触发点有：
 - findrunnable 中，没有找到可以运行的 goroutine
+- startTheWorldWithSema 中，也就是 GC 的 STW 结束前，会调用非阻塞的 netpoll，然后将就绪的 groutine 队列加入到调度中。
 - 
 
 ----
