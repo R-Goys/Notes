@@ -1000,7 +1000,7 @@ func (ht *HashTrieMap[K, V]) Swap(key K, new V) (previous V, loaded bool) {
 				break
 			}
 ```
-为什么哈希 bits 都没有使用完，直接 break 了？难道直接就用前几位就直接插入了吗？因为我最开始有这样的疑惑，所以这里还涉及到一个关键的函数，可以注意到，我们在最后进行 Store 的时候，有一个函数叫做 expand，实际上，expand 会利用我们传入的 hash 和 hashshift 继续构造我们的子树，所以并不会有上述所说的情况：
+为什么哈希 bits 都没有使用完，直接 break 了？难道直接就用前几位就直接插入了吗？因为我最开始有这样的疑惑，所以这里还涉及到一个关键的函数，可以注意到，当发生哈希冲突的时候（意味着 lazy expand），我们在最后进行 Store 的时候，有一个函数叫做 expand，实际上，expand 会利用我们传入的 hash 和 hashshift 继续构造我们的子树，所以并不会有上述所说的情况：
 ```go
 // expand takes two entries (oldEntry 和 newEntry)，它们从顶层哈希前缀树 (trie) 的同一个 slot 冲突下来 ——
 // 即它们在当前 hashPrefix 下映射到相同 child index，但它们的 full hash 并不相同。
