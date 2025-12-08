@@ -993,6 +993,71 @@ func (ht *HashTrieMap[K, V]) Swap(key K, new V) (previous V, loaded bool) {
 }
 ```
 
+针对于这部分代码，你可能会有疑问：
+```go
+			if n == nil || n.isEntry {
+				haveInsertPoint = true
+				break
+			}
+```
+为什么哈希 bits 都没有使用完，直接 break 了？难道直接就用前几位就直接插入了吗？因为我最开始有这样的疑惑，所以这里还涉及到一个关键的函数，可以注意到，我们在最后进行 Store 的时候，有一个函数叫做 expand，实际上，expand 会利用我们传入的 hash 和 hashshift 继续构造我们的子树，所以并不会有上述所说的情况：
+```go
+// expand takes two entries (oldEntry 和 newEntry)，它们从顶层哈希前缀树 (trie) 的同一个 slot 冲突下来 ——
+// 即它们在当前 hashPrefix 下映射到相同 child index，但它们的 full hash 并不相同。
+// expand 会基于剩余的 hash bits 构造子树 (sub-trie)，把这两个 entry 放到合适的位置。
+// 如果它们的 full hash 完全一致 (hash collision)，则 fallback 到 overflow list (链表)。
+func (ht *HashTrieMap[K, V]) expand(
+    oldEntry, newEntry *entry[K, V],
+    newHash uintptr,
+    hashShift uint,
+    parent *indirect[K, V],
+) *node[K, V] {
+    // 计算 oldEntry 的 hash —— 与 newEntry 的 hash (即 newHash) 对比
+    oldHash := ht.keyHash(unsafe.Pointer(&oldEntry.key), ht.seed)
+    if oldHash == newHash {
+        // hash 完全一致 —— 说明是 hash collision (可能 key 不同也可能 key 相同)
+        // 将旧 entry 放入 newEntry 的 overflow 链 (链地址 / 碰撞链) 中，然后返回 newEntry 节点
+        newEntry.overflow.Store(oldEntry)
+        return &newEntry.node
+    }
+
+    // 否则 hash 不同 —— 即使它们 prefix 冲突，也有可能通过剩余 bits 区分
+    // 因此我们创建一个新的 indirect node (子 trie 节点)，作为它们分叉的根
+    newIndirect := newIndirectNode(parent)
+    top := newIndirect
+
+    for {
+        if hashShift == 0 {
+            // 已经耗尽 hash bits，还没分开 —— 不应该发生 (除非 hash 设计不够 bits)
+            panic("internal/sync.HashTrieMap: ran out of hash bits while inserting")
+        }
+        // 准备向下一层 descent，消耗部分 hash bits
+        hashShift -= nChildrenLog2
+
+        // 取这一层的 child 索引 (0 ~ nChildrenMask)，用于 old/new 的 hash
+        oi := (oldHash >> hashShift) & nChildrenMask
+        ni := (newHash >> hashShift) & nChildrenMask
+
+        if oi != ni {
+            // 在这一层，通过 hash bits 已经能够区分两者 —— 分叉成功
+            // 将 oldEntry 和 newEntry 分别放到不同的 child slot 中
+            newIndirect.children[oi].Store(&oldEntry.node)
+            newIndirect.children[ni].Store(&newEntry.node)
+            break
+        }
+
+        // 如果两者在这一层仍然冲突 (即 oi == ni)，说明 hash 前缀仍相同
+        // 需要进一步下降 (deepen)，也就是创建下一级 indirect node
+        nextIndirect := newIndirectNode(newIndirect)
+        // 把下一级挂到当前 slot 的同一个子 index
+        newIndirect.children[oi].Store(&nextIndirect.node)
+        // 继续往下
+        newIndirect = nextIndirect
+    }
+
+    return &top.node
+}
+```
 可以看到，我们的 sync.Map 在 Linux 的实现中是以哈希前缀树组织的，其中每个节点的数据结构如下：
 
 ```go
