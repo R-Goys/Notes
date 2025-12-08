@@ -391,7 +391,7 @@ zookeeper存储的kafka相关信息：
 
 形成一个消费者组的条件是：消费者的GroupID相同，当然如果partition的数量超过了消费者组中的消费者的数量，被空出来的消费者不会参与消费。
 
-**消费者是如何实现分区的分配的？**首先有一个coordinator，用来辅助消费者的初始化和分区的分配。最开始会从`__consumer_offsets`中，通过消费者组的id进行哈希计算，选择一个partition来存储消费者的offset数据，而负责管理这个partition的broker，也就成为了这个消费者组的coordinator，而选举完成之后，所有的consumer都会向这个coordinator发送JoinGroup请求，而coordinator又会从这些consumer中选举一个作为消费者组的leader，此后，coordinator会把要消费的topic情况发送给leader消费者，随后leader会制定一个消费方案，这里就涉及到一个**分区分配的策略**，随后就将分配的方案发送给每个consumer，然后进行消费，而且每个消费者都会定期和coordinator保持心跳机制，一旦超时，就会被移除。并且会触发**再平衡**(重新分配消费任务)。(当某个消费者消费过慢，也会触发)
+**消费者是如何实现分区的分配的？** 首先有一个coordinator，用来辅助消费者的初始化和分区的分配。最开始会从`__consumer_offsets`中，通过消费者组的id进行哈希计算，选择一个partition来存储消费者的offset数据，而负责管理这个partition的broker，也就成为了这个消费者组的coordinator，而选举完成之后，所有的consumer都会向这个coordinator发送JoinGroup请求，而coordinator又会从这些consumer中选举一个作为消费者组的leader，此后，coordinator会把要消费的topic情况发送给leader消费者，随后leader会制定一个消费方案，这里就涉及到一个**分区分配的策略**，随后就将分配的方案发送给每个consumer，然后进行消费，而且每个消费者都会定期和coordinator保持心跳机制，一旦超时，就会被移除。并且会触发**再平衡**(重新分配消费任务)。(当某个消费者消费过慢，也会触发)
 
 **消费者组是怎么消费的？**
 
