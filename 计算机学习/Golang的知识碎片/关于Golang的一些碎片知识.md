@@ -1292,4 +1292,4 @@ type iface struct { // 16 字节
 	data unsafe.Pointer
 }
 ```
-`tab` 存储着这个类型的可以调用的方法。
+`tab` 存储着这个类型的可以调用的方法。我们需要调用接口的方法的时候，会通过 `data` 直接调用 `tab` 里面的 `fun` 成员去调用对应的方法。 
