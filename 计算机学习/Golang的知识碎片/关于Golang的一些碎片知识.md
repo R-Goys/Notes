@@ -1275,3 +1275,6 @@ func (e *entry) tryExpungeLocked() (isExpunged bool) {
 ## 21. Go 程序的启动
 
 直接贴个链接 [bootstrap](https://chenbc.xlog.app/go-bootstrap) 。
+
+## 22. interface 底层实现
+
