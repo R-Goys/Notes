@@ -1278,4 +1278,18 @@ func (e *entry) tryExpungeLocked() (isExpunged bool) {
 
 ## 22. interface 底层实现
 
-interface 分为两种，一种是 `eface`，他表示空接口，即我们常用的 `interface{}`，他通过结构体中的 `_type` 和 `data` 来指向实际的类型和值，他没有对应的方法调用机制。 
+interface 分为两种，一种是 `eface`，他表示空接口，即我们常用的 `interface{}`，他通过结构体中的 `_type` 和 `data` 来指向实际的类型和值，他没有对应的方法调用机制。
+```go
+type eface struct { // 16 字节
+	_type *_type
+	data  unsafe.Pointer
+}
+```
+这意味着什么，`interface{}` 并不是 any，也就是说并不是任何类型，而是一个实际的类型，当我们将其作为参数传递给函数的时候，我们实际的参数的类型会发生隐式转换，变成所谓的 `interface{}` 类型，原本的 nil 到了函数中并不是 nil 了。
+```go
+type iface struct { // 16 字节
+	tab  *itab
+	data unsafe.Pointer
+}
+```
+`tab` 存储着这个类型哟普的
