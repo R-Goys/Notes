@@ -1292,4 +1292,4 @@ type iface struct { // 16 字节
 	data unsafe.Pointer
 }
 ```
-`tab` 存储着这个类型哟普的
+`tab` 存储着这个类型的可以调用的方法。
