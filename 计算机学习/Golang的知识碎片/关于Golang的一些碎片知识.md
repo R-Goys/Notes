@@ -1278,3 +1278,4 @@ func (e *entry) tryExpungeLocked() (isExpunged bool) {
 
 ## 22. interface 底层实现
 
+interface 分为两种，一种是 `eface`，他表示空接口，即我们常用的 `interface{}`，他通过结构体中的 `_type` 和 `data` 来指向实际的类型和值，他没有对应的方法调用机制。 
