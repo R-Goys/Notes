@@ -135,7 +135,7 @@ Go 的网络轮询器其实就是为网络 I/O 做了一层优化，深入到 `n
 
 然而，Go 的网络轮询器到目前为止也只对网络 I/O 有作用，针对于文件 I/O 并没有效果，期待有朝一日能将 io_uring 加入 Go Runtime，我个人没什么研究，但是如果能将 io_uring 加入 go runtime 的话，至少对于文件 I/O 会有极大的性能提升，至于网络轮询器我感觉这样继续采用 epoll 就好。
 
-`net/http` 直接使用了 pollDesc 这个数据结构来 wait，这里的 wait 其实就是 gopark 让出内核线程资源，然后等待 netpoll 去唤醒他。
+`net/http` 直接使用了 pollDesc 这个数据结构来 wait，这里的 wait 其实就是 gopark 让出内核线程资源，然后等待 netpoll 去唤醒他，当我们等待一个客户端的 fd 是否有消息的时候直接是使用的 pollDesc 去 wait，而 `hertz` 使用了 chan 的阻塞挂起机制来实现的可读事件通知，但是本质其实还是多 reactor 模型。
 
 netpoll 其实就是一个 epoll_wait，他会把准备就绪的 goroutine 放入到全局队列中，从而让他们能够被调度。
 
