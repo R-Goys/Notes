@@ -1026,7 +1026,7 @@ func (ht *HashTrieMap[K, V]) expand(
         if hashShift == 0 {
             // 已经耗尽 hash bits，还没分开 —— 不应该发生 (除非 hash 设计不够 bits)
             panic("internal/sync.HashTrieMap: ran out of hash bits while inserting")
-        }
+        }  
         // 准备向下一层 descent，消耗部分 hash bits
         hashShift -= nChildrenLog2
 
