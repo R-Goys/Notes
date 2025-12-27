@@ -1264,9 +1264,9 @@ func (e *entry) tryExpungeLocked() (isExpunged bool) {
 	return p == expunged
 }
 ```
-除此之外，Store 方法中，在执行 dirtyLocked 之后，还会再次刷新一次 `read map`，将最新的 `dirty map` 同步给 `read map`。
+除此之外，Store 方法中，在执行 dirtyLocked 之后，还会再次刷新一次 `read map`，将最新的 `dirty map` 同步给 `read map`，这里说一下经典的 `expunged` 状态，他会在重新构建 `dirty map` 时使用，此时会遍历 `read map` 的所有 `entry`，其中有为 nil 的 `entry`，此时需要将它置换为 `expunged`，并且不会将它放入 `dirty map` 以此来减小 `dirty map` 的大小。
 
-值得一提的是，小林 coding 里面写的 sync.map 八股是错的🤣建议还是自己去看[源码][https://github.com/golang/go/blob/release-branch.go1.23/src/sync/map.go]学习一下。
+这个 `expunged` 是啥意思？这里还需要知道我们的删除逻辑是怎么样的，把我们的刷新 `dirty map` 分为上一轮和本轮，上一轮被删除的 key 目前只存在于 `read map` 并且状态为 `expunged`，而本轮被删除的 key 存在于两个 map 并且状态为 nil，也就是说，本轮删除的数据依旧存在于 `dirty map` 只不过为 nil，这是为了我们读性能更加高效而做出的抉择，为了区分这两种状态，就引入了 `expunged` 状态，用于区分在 `dirty map` 中已经删掉和删掉但是占有内存的数据，而本轮压根不存在的数据不存在于 `read map`，压根 load 不出来，这就是 `entry` 的三种状态。**那如果没有这个状态会发生什么呢？** 如果没有 `expunged`，那么我们无法区分当前为 nil 的数据到底存不存在于 `dirty map`，这里的不存在指的是 `_, ok := ditry_map[key]` 会返回 false！如果存在，那当然很简单，只需要原子切换 `read map` 里面的 entry 就可以了，因为 `read map` 和 `dirty map` 虽然是不同的 map，但是他们共享同一个 `entry` 实例，但是如果不存在，就必须要去 `dirty map` 里面重新再插入才行，可以看见，我们必须要对两种情况进行分类，所以才有了 `expunged`。
 
 因此我们可以知道，在高并发写的情况下，包括原本为了优化读操作而延后到写路径的代价，原来的无锁读也会退化为互斥锁的激烈竞争，在 cache miss 的时候会重新遍历 `read map` 来压缩 sync.map，等等代价会无限放大，从而性能不断退化，甚至远远不如读写锁的 map。
 
