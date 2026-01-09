@@ -29,3 +29,12 @@
 - [ohmyzsh](https://github.com/ohmyzsh/ohmyzsh)，偏爱 cloud。
 - [docker](https://docs.docker.com/desktop/setup/install/linux/fedora/)
 
+### 其他需要注意的
+
+隐藏所有正常窗口快捷键改成 ctrl + D
+
+交互性截图快捷键 F6
+
+自定义快捷键：
+- emoji 表情 `gnome-characters`：super + .
+- 打开终端 `ptyxis`：ctrl + alt + T
