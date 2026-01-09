@@ -21,6 +21,10 @@
 - 飞书、qq、微信（flatpak）、腾讯会议（flatpak）、qq音乐（flatpak）、discord（flatpak）、telegram（flatpak）、[splayer](https://github.com/imsyy/SPlayer)
 - [maple-font](https://github.com/subframe7536/maple-font)
 - vscode
+	- `Maple Mono Normal NL Medium` 字体
+	- Dracula Theme Official 主题
+	- gitlen
+	- docker
 - obsidian（flatpak）
 	- maple 主题
 	- git 插件
