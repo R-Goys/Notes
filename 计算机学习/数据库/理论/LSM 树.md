@@ -1,6 +1,7 @@
 参考资料：
 https://zhuanlan.zhihu.com/p/181498475
 https://github.com/Vanilla-Beauty/tiny-lsm-go
+https://www.jianshu.com/p/e89cd503c9ae?utm_campaign=hugo
 
 LSM 树本身并不是一种严格的树状结构，而是一种存储结构，目前著名的 rocksdb、Leveldb 都是使用的这种存储结构。他通过顺序写来提高写入性能，其文件和内存的分层设计会降低一定的读性能，由于他的高性能写入，所以他相对比较流行。但是 mysql 不就是用了顺序写和分层设计吗？但是它并不是 lsm 树，只能说有异曲同工之妙，真正的存储结构并不是一样的。
 
