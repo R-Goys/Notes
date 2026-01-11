@@ -53,4 +53,4 @@ L0 通过内部的相同尺寸的 SST 合并来形成更大的 SST 文件，也�
 
 ### 香草美人的 tiny-lsm-go
 
-其 memtable 使用的是跳表组织的数据。
+其 memtable 使用的是跳表组织的数据，一个存储引擎中有一个组件管理全部的 memtable，每个 memtable 都是一个跳表，如果当前使用的 memtable 到达了大小的阈值，就会放入 frozen memtable 列表，与此同时有一个定时任务会定期进行 memtable 的刷盘操作，
