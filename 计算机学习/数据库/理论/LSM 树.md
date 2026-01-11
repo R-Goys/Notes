@@ -53,4 +53,7 @@ L0 通过内部的相同尺寸的 SST 合并来形成更大的 SST 文件，也�
 
 ### 香草美人的 tiny-lsm-go
 
-其 memtable 使用的是跳表组织的数据，一个存储引擎中有一个组件管理全部的 memtable，每个 memtable 都是一个跳表，如果当前使用的 memtable 到达了大小的阈值，就会放入 frozen memtable 列表，与此同时有一个定时任务会定期进行 memtable 的刷盘操作，
+其 memtable 使用的是跳表组织的数据，一个存储引擎中有一个组件管理全部的 memtable，每个 memtable 都是一个跳表，如果当前使用的 memtable 到达了大小的阈值，就会放入 frozen memtable 列表。
+
+后台有一个定时任务会定期进行 memtable 的刷盘操作。将 memtable 转换为 sstable 的时候会有一个分 block 的操作，每个 SST 中有多个 block。这里用的是建造者模式，通过不断往 builder 中加入键值，会随着数据的增多，创建多个 block，由于我们在 memtable 中以跳表组织，所以 SST 内部的数据是有序的，因此我们可以读取文件的元数据区域之后，通过二分查找找到需要读取的 block，这样就不需要一次性读取这个文件的所有内容了，只需要读取某一个小 block，然后在这个 block 内部进行二分查找对应的键值即可。除了这些以外，对于每个 SST 文件都会有一个布隆过滤器来帮助快速过滤不存在的键值访问，进一步增强了性能。
+
