@@ -25,10 +25,11 @@
 	- Dracula Theme Official 主题
 	- gitlen
 	- docker
-- obsidian（flatpak）
+- obsidian（flatpak），整理知识库。
 	- maple 主题
 	- git 插件
 	- style setting
+- typora（flatpak），看临时 md 会用。
 - [timeshift](https://github.com/linuxmint/timeshift)
 - [ohmyzsh](https://github.com/ohmyzsh/ohmyzsh)，偏爱 cloud。
 - [docker](https://docs.docker.com/desktop/setup/install/linux/fedora/)
