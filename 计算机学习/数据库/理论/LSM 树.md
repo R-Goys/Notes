@@ -11,7 +11,7 @@ LSM 树本身并不是一种严格的树状结构，而是一种存储结构，�
 
 首先要说的是 lsm 的分层结构，结构变换是 `memtable`（内存）-> `immutable memtable`（内存 -> `sstable`（磁盘）
 
-`memtable` 是一个内存结构，通常会依靠 WAL 来保证数据可靠性，他用于保存最近的数据，会通过一定的结构组织这些数据。
+`memtable` 是一个内存结构，通常会依靠 WAL 来保证数据可靠性，他用于保存最近的数据，会通过一定的结构组织这些数据，比如可以用跳表。
 
 `immutable memtable` 是在 `memtable` 到达一定大小，也就是 full 之后会转换为 `immutable memtable`，他是 `memtable` 转换为 `sstable` 的中间状态，在 `memtable` full 之后，他除了转换还会新创建一个 `memtable`，用来接管新的写操作，此时就不会因为 `immutable memtable` 转换而阻塞数据更新操作。
 
