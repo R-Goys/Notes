@@ -194,7 +194,7 @@ MySQL 中的数据是以页为单位存储的，buffer pool 也一样，所有�
 
 为了防止还没有落盘的 buffer pool 中的脏页数据在断电等故障的时候丢失，在我们更新了 buffer pool 之后，我们就会将做的修改操作记录到 redo log 文件里面。这里虽然也是写磁盘，但是这里并不是随机写，而是顺序写，**直接将数据追加到磁盘中**，所以速度很快，但是其实 redo log 也有一层 redo log buffer 定期将 redo log 顺序写入磁盘中，目的是减少磁盘 I/O ，尽管顺序写很快，但是我们依旧需要减少不必要的磁盘 I/O 来提升性能。
 
-注意，我们记录的是对 buffer pool 的 redo log，也就是说，对于 undo log 的修改，我们也需要记录到 redo log 里面实现持久化！当然，并不是所有位于 buffer pool 的页都会记录，典型的像数据页，索引页，undo 页都会写 redo log 来保证持久性。
+注意，我们记录的是对 buffer pool 的 redo log，也就是说，对于 undo log 的修改，我们也需要记录到 redo log 里面实现持久化！当然，并不是所有位于 buffer pool 的页都会记录，典型的像数据页，索引页，undo 页都会写 redo log 来保证持久性；除了这个以外，我们还需要注意，redo log 是循环写模式，所以他还有一个 checkpoint 标记着我们可以擦除和不能擦除的界限，当 write point 追上了 checkpoint，也就意味着 buffer pool 里面的脏页太多了，需要刷盘才可以移动 checkpoint。
 
 我们的 redo log 采取的是循环写模式，默认由两个 redo log file 组成，我们会先写满 file1，写满后再写 file2 ，然后又写 file1 这样的顺序。相当于一个环形。我们会用 `write pos` 表示当前写的位置，`checkpoint` 表示当前需要擦除的位置，如果 `write pos == checkpoint` 则无法写入 log ，会陷入阻塞。
 
