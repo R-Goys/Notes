@@ -274,7 +274,7 @@ zookeeper存储的kafka相关信息：
 
 在每个kafka实例启动后，都会向zookeeper注册broker，随后开始选择controller，按照先来后到的原则，谁先进行注册，哪个broker就会被选举为controller。
 
-**Controller是什么？**controller是一个特殊的broker，一个集群中只有一个controller，由zookeeper辅助选举，如果当前controller宕机，kafka通过zookeeper监控controller的状态，此时，zookeeper会重新辅助选举新的controller。
+**Controller是什么？** controller是一个特殊的broker，一个集群中只有一个controller，由zookeeper辅助选举，如果当前controller宕机，kafka通过zookeeper监控controller的状态，此时，zookeeper会重新辅助选举新的controller。
 
 同时controller负责监听brokers的节点变化，负责每个分区partition的leader的选举，每次某个broker宕机或者加入时，都会进行重新选举，在选举一个新的leader之后，Controller就会将这些信息上传到zookeeper，此时，还会将这些信息同步给其他节点，以便于controller挂掉之后，其他节点可以随时进行选举新的controller。
 
@@ -470,13 +470,13 @@ kafka中自带的分区策略有Range，Roundrobin，Sticky，CooperativeSticky�
 
 - **Range**：范围分配策略，针对于**每个主题**对每个分区和每个消费者进行编号排序，然后用消费者去对应每一个partition，总体来说就是(四个分区，三个消费者)：
 
-  > Partition1 <-> Consumer1
+> Partition1 <-> Consumer1
   >
-  > Partition2 <-> Consumer2
-  >
-  > Partition3 <-> Consumer3
-  >
-  > Partition4 <-> Consumer1
+> Partition2 <-> Consumer2
+>
+> Partition3 <-> Consumer3
+>
+> Partition4 <-> Consumer1
 
   虽然只针对一个topic而言，编号较低的Consumer可能消耗不大，但是如果对于上百个topic而言，低位的Consumer就多承担上百个partition，容易造成数据倾斜！
 
