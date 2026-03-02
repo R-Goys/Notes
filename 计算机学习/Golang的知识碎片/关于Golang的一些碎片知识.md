@@ -3,7 +3,7 @@
 
 ### GMP模型及运行原理
 
-G代表goroutine，M代表machine也叫做线程，P代表processor，处理器(不是CPU！！)，G在线程上执行，由P进行调度。
+G代表goroutine，M代表machine也叫做线程，P代表processor，处理器(不是 CPU)，G在线程上执行，由P进行调度。
 
 这里大概讲一下调度器的运行过程，其中的很多细节都值得去仔细看，如果有需要，可以到《[Go 语言设计与实现](https://draveness.me/golang)》上阅读：
 
